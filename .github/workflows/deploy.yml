@@ -1,0 +1,82 @@
+# Deploy workflow stub
+#
+# Environment protection:
+# - Create GitHub Environments named `staging` and `production`
+# - Enable required reviewers / wait timer on `production`
+# - Store secrets (MONGODB_URI, JWT_*, REDIS_URL, deploy credentials) per environment
+# - Do NOT push secrets into logs or artifact outputs
+#
+# Replace the deploy steps with your target (ECS, Cloud Run, Fly.io, VPS SSH, etc.).
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy (${{ github.event.inputs.environment || 'production' }})
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      # url: https://api.example.com
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install & test
+        env:
+          NODE_ENV: test
+          MONGODB_URI: mongodb://127.0.0.1:27017/depth_dashboard_deploy_check
+          REDIS_URL: redis://127.0.0.1:6379/15
+          JWT_ACCESS_SECRET: deploy-check-access-secret-32chars!!
+          JWT_REFRESH_SECRET: deploy-check-refresh-secret-32chars!
+          COOKIE_SECRET: deploy-check-cookie-secret-32chars!!
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm test -- --forceExit
+
+      - name: Build image
+        run: |
+          IMAGE_TAG="${{ github.ref_name }}-${{ github.sha }}"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          docker build -t depth-dashboard-api:$IMAGE_TAG .
+
+      - name: Deploy (stub)
+        env:
+          TARGET_ENV: ${{ github.event.inputs.environment || 'production' }}
+        run: |
+          echo "============================================================"
+          echo "Deploy stub — wire this step to your hosting provider."
+          echo "Target environment: $TARGET_ENV"
+          echo "Image tag: $IMAGE_TAG"
+          echo ""
+          echo "Suggested next steps:"
+          echo "  1. docker push \$REGISTRY/depth-dashboard-api:\$IMAGE_TAG"
+          echo "  2. Update service / task definition with new image"
+          echo "  3. Run migrations: npm run migrate"
+          echo "  4. Smoke-test /api/v1/health and /api/v1/health/ready"
+          echo "============================================================"
+          exit 0

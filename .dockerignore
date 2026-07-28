@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Dependencies & tooling
+node_modules/
+npm-debug.log*
+yarn-error.log*
+coverage/
+.nyc_output/
+.eslintcache
+.prettiercache
+.husky/
+.vscode/
+.idea/
+
+# Logs & runtime
+logs/
+*.log
+uploads/
+!uploads/.gitkeep
+.tmp/
+.cache/
+
+# Tests & docs not needed in image
+**/*.test.js
+**/*.spec.js
+**/__tests__/
+src/tests/
+docs/
+README.md
+.dockerignore
+docker/Dockerfile.dev
+docker-compose*.yml
+.github/
+
+# OS
+.DS_Store
+Thumbs.db

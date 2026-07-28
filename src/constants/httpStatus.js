@@ -1,0 +1,32 @@
+import { StatusCodes, ReasonPhrases } from 'http-status-codes';
+
+export const HTTP_STATUS = Object.freeze({
+  OK: StatusCodes.OK,
+  CREATED: StatusCodes.CREATED,
+  ACCEPTED: StatusCodes.ACCEPTED,
+  NO_CONTENT: StatusCodes.NO_CONTENT,
+  BAD_REQUEST: StatusCodes.BAD_REQUEST,
+  UNAUTHORIZED: StatusCodes.UNAUTHORIZED,
+  FORBIDDEN: StatusCodes.FORBIDDEN,
+  NOT_FOUND: StatusCodes.NOT_FOUND,
+  CONFLICT: StatusCodes.CONFLICT,
+  UNPROCESSABLE_ENTITY: StatusCodes.UNPROCESSABLE_ENTITY,
+  TOO_MANY_REQUESTS: StatusCodes.TOO_MANY_REQUESTS,
+  INTERNAL_SERVER_ERROR: StatusCodes.INTERNAL_SERVER_ERROR,
+  SERVICE_UNAVAILABLE: StatusCodes.SERVICE_UNAVAILABLE,
+  GATEWAY_TIMEOUT: StatusCodes.GATEWAY_TIMEOUT,
+});
+
+export const HTTP_REASON = Object.freeze({
+  OK: ReasonPhrases.OK,
+  CREATED: ReasonPhrases.CREATED,
+  BAD_REQUEST: ReasonPhrases.BAD_REQUEST,
+  UNAUTHORIZED: ReasonPhrases.UNAUTHORIZED,
+  FORBIDDEN: ReasonPhrases.FORBIDDEN,
+  NOT_FOUND: ReasonPhrases.NOT_FOUND,
+  CONFLICT: ReasonPhrases.CONFLICT,
+  TOO_MANY_REQUESTS: ReasonPhrases.TOO_MANY_REQUESTS,
+  INTERNAL_SERVER_ERROR: ReasonPhrases.INTERNAL_SERVER_ERROR,
+});
+
+export default HTTP_STATUS;
