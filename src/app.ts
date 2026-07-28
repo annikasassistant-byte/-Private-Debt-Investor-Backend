@@ -81,9 +81,13 @@ export function createExpressApp() {
   );
 
   // Status page assets (spinner boot script) — does not affect API routes
+  const statusAssetsDir = path.resolve(
+    process.cwd(),
+    process.env.STATUS_ASSETS_DIR || 'src/public',
+  );
   app.use(
     '/status-assets',
-    express.static(path.resolve(process.cwd(), 'src/public'), {
+    express.static(statusAssetsDir, {
       maxAge: env.NODE_ENV === 'production' ? '1h' : 0,
       fallthrough: true,
     }),

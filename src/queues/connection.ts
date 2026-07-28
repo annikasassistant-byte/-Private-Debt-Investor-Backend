@@ -1,16 +1,14 @@
-import IORedis from 'ioredis';
+import { Redis } from 'ioredis';
 import env from '../config/env.js';
 import logger from '../config/logger.js';
 import { buildRedisOptions, isRedisTlsUrl } from '../config/redisOptions.js';
 
-/** @type {IORedis | null} */
-let connection = null;
+let connection: Redis | null = null;
 
 /**
  * BullMQ Redis connection from REDIS_URL only.
- * @returns {IORedis}
  */
-export function getQueueConnection() {
+export function getQueueConnection(): Redis {
   if (connection) return connection;
 
   const options = buildRedisOptions({
@@ -20,7 +18,7 @@ export function getQueueConnection() {
     keyPrefix: undefined,
   });
 
-  connection = new IORedis(env.REDIS_URL, options);
+  connection = new Redis(env.REDIS_URL, options);
 
   connection.on('connect', () => {
     logger.info('BullMQ Redis connecting...', { tls: isRedisTlsUrl() });

@@ -8,24 +8,25 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "build": "node -e \"console.log('No transpile step — ESM runtime ready')\"",
+    "dev": "nodemon",
+    "start": "node dist/server.js",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"src/**/*.{js,json,md}\" \"*.{js,json,md,yml}\"",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-    "coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
-    "seed": "node src/scripts/seed.js",
-    "migrate": "node src/scripts/migrate.js",
-    "create-admin": "node src/scripts/createAdmin.js",
+    "format": "prettier --write \"src/**/*.{ts,js,json,md}\" \"*.{js,json,md,yml}\"",
+    "test": "node --experimental-vm-modules --import tsx node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules --import tsx node_modules/jest/bin/jest.js --watch",
+    "coverage": "node --experimental-vm-modules --import tsx node_modules/jest/bin/jest.js --coverage",
+    "seed": "tsx src/scripts/seed.ts",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "create-admin": "tsx src/scripts/createAdmin.ts",
     "prepare": "husky || true",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down"
   },
   "lint-staged": {
-    "*.js": [
+    "*.{ts,js}": [
       "eslint --fix",
       "prettier --write"
     ],
@@ -75,6 +76,23 @@
     "@commitlint/cli": "^19.6.1",
     "@commitlint/config-conventional": "^19.6.0",
     "@eslint/js": "^9.17.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/compression": "^1.8.1",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/hpp": "^0.2.6",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.1.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.17",
+    "@types/supertest": "^6.0.3",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
+    "esbuild": "^0.25.8",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
     "husky": "^9.1.7",
@@ -82,6 +100,8 @@
     "lint-staged": "^15.2.11",
     "nodemon": "^3.1.14",
     "prettier": "^3.4.2",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
   }
 }

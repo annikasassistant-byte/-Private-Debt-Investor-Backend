@@ -5,19 +5,18 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
  * Base application exception — operational errors that are safe to expose to clients.
  */
 export class AppException extends Error {
-  /**
-   * @param {string} message
-   * @param {number} [statusCode=500]
-   * @param {string} [errorCode=INTERNAL_ERROR]
-   * @param {boolean} [isOperational=true]
-   * @param {unknown} [details=null]
-   */
+  statusCode: number;
+  errorCode: string;
+  isOperational: boolean;
+  details: unknown;
+  timestamp: string;
+
   constructor(
-    message,
-    statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR,
-    errorCode = ERROR_CODES.INTERNAL_ERROR,
+    message: string,
+    statusCode: number = HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    errorCode: string = ERROR_CODES.INTERNAL_ERROR,
     isOperational = true,
-    details = null,
+    details: unknown = null,
   ) {
     super(message);
     this.name = this.constructor.name;
@@ -32,10 +31,6 @@ export class AppException extends Error {
     }
   }
 
-  /**
-   * Serialize for JSON API responses.
-   * @returns {object}
-   */
   toJSON() {
     return {
       success: false,

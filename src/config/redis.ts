@@ -1,10 +1,9 @@
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import env from './env.js';
 import logger from './logger.js';
 import { buildRedisOptions, isRedisTlsUrl } from './redisOptions.js';
 
-/** @type {Redis | null} */
-let redisClient = null;
+let redisClient: Redis | null = null;
 let redisEnabled = true;
 
 /**
@@ -81,7 +80,7 @@ export async function connectRedis() {
     }
     // Wait briefly for ready
     if (client.status !== 'ready') {
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Redis connect timeout')), 3000);
         client.once('ready', () => {
           clearTimeout(timer);
@@ -94,9 +93,9 @@ export async function connectRedis() {
       });
     }
     return true;
-  } catch (error) {
+  } catch (error: any) {
     logger.warn('Redis unavailable — continuing without cache/session store', {
-      message: error.message,
+      message: error?.message,
     });
     redisEnabled = false;
     try {

@@ -1,10 +1,10 @@
+import type { HelmetOptions } from 'helmet';
 import env, { isProduction } from './env.js';
 
 /**
  * Helmet security middleware options.
- * @type {import('helmet').HelmetOptions}
  */
-export const helmetOptions = {
+export const helmetOptions: HelmetOptions = {
   contentSecurityPolicy: isProduction
     ? {
         useDefaults: true,
