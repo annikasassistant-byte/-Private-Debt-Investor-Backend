@@ -4,9 +4,12 @@ jspm_packages/
 
 # Environment
 .env
+.env.server
 .env.local
 .env.*.local
 !.env.example
+!.env.server.example
+.env.example2
 
 # Logs
 logs/

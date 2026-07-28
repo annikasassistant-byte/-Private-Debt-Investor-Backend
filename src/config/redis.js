@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import env from './env.js';
 import logger from './logger.js';
+import { buildRedisOptions, isRedisTlsUrl } from './redisOptions.js';
 
 /** @type {Redis | null} */
 let redisClient = null;
@@ -8,7 +9,6 @@ let redisEnabled = true;
 
 /**
  * Build reconnect delay with exponential backoff capped at 30s.
- * Returns null to stop reconnecting after max attempts.
  * @param {number} times
  * @returns {number | null}
  */
@@ -25,37 +25,24 @@ function reconnectStrategy(times) {
 }
 
 /**
- * Create (or return existing) ioredis client.
- * Uses lazyConnect so importing config does not open sockets until first command / explicit connect.
+ * Create Redis client from REDIS_URL only (password + TLS come from the URL).
  * @returns {Redis | null}
  */
 export function getRedisClient() {
-  if (!redisEnabled) {
-    return null;
-  }
+  if (!redisEnabled) return null;
+  if (redisClient) return redisClient;
 
-  if (redisClient) {
-    return redisClient;
-  }
-
-  const options = {
-    keyPrefix: env.REDIS_KEY_PREFIX,
-    connectTimeout: env.REDIS_CONNECT_TIMEOUT_MS,
+  const options = buildRedisOptions({
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
-    retryStrategy: reconnectStrategy,
     lazyConnect: true,
-    showFriendlyErrorStack: env.NODE_ENV !== 'production',
-  };
-
-  if (env.REDIS_PASSWORD) {
-    options.password = env.REDIS_PASSWORD;
-  }
+    retryStrategy: reconnectStrategy,
+  });
 
   redisClient = new Redis(env.REDIS_URL, options);
 
   redisClient.on('connect', () => {
-    logger.info('Redis connecting...');
+    logger.info('Redis connecting...', { tls: isRedisTlsUrl() });
   });
 
   redisClient.on('ready', () => {
@@ -64,7 +51,6 @@ export function getRedisClient() {
   });
 
   redisClient.on('error', (err) => {
-    // Avoid log spam for expected offline state in local/dev without Redis
     if (env.NODE_ENV === 'production') {
       logger.error('Redis error', { message: err.message });
     } else {
@@ -72,17 +58,9 @@ export function getRedisClient() {
     }
   });
 
-  redisClient.on('close', () => {
-    logger.warn('Redis connection closed');
-  });
-
-  redisClient.on('reconnecting', (delay) => {
-    logger.warn('Redis reconnecting', { delayMs: delay });
-  });
-
-  redisClient.on('end', () => {
-    logger.warn('Redis connection ended');
-  });
+  redisClient.on('close', () => logger.warn('Redis connection closed'));
+  redisClient.on('reconnecting', (delay) => logger.warn('Redis reconnecting', { delayMs: delay }));
+  redisClient.on('end', () => logger.warn('Redis connection ended'));
 
   return redisClient;
 }

@@ -1,7 +1,14 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, '../..');
+
+// App config then credentials (URL-only secrets in .env.server override .env)
+dotenv.config({ path: path.join(rootDir, '.env') });
+dotenv.config({ path: path.join(rootDir, '.env.server'), override: true });
 
 const booleanFromString = z
   .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
@@ -20,18 +27,24 @@ const envSchema = z.object({
   MAINTENANCE_MODE: booleanFromString.default(false),
   API_KEY: z.string().min(8).default('change-me-api-key'),
 
+  // --- URL-only integrations ---
+  /** MongoDB Atlas: mongodb+srv://USER:PASS@CLUSTER.mongodb.net/db?... */
   MONGODB_URI: z.string().min(1),
+  /** Redis / Redis Cloud / Upstash: redis://... or rediss://... (password in URL) */
+  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+  /** Cloudinary: cloudinary://API_KEY:API_SECRET@CLOUD_NAME */
+  CLOUDINARY_URL: z.string().optional().default(''),
+
   MONGODB_MAX_POOL_SIZE: z.coerce.number().int().positive().default(10),
   MONGODB_MIN_POOL_SIZE: z.coerce.number().int().nonnegative().default(2),
-  MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(45000),
-  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   MONGODB_MAX_RETRIES: z.coerce.number().int().nonnegative().default(5),
   MONGODB_RETRY_DELAY_MS: z.coerce.number().int().positive().default(3000),
   MONGODB_AUTO_INDEX: booleanFromString.default(true),
+  MONGODB_FAMILY: z.coerce.number().int().optional(),
 
-  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
-  REDIS_PASSWORD: z.string().optional().default(''),
   REDIS_KEY_PREFIX: z.string().default('depth:'),
   REDIS_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   REDIS_MAX_RETRIES: z.coerce.number().int().nonnegative().default(10),
@@ -70,9 +83,6 @@ const envSchema = z.object({
   SMTP_FROM_NAME: z.string().default('Depth Dashboard'),
   SMTP_FROM_EMAIL: z.string().email().default('noreply@depthdashboard.com'),
 
-  CLOUDINARY_CLOUD_NAME: z.string().optional().default(''),
-  CLOUDINARY_API_KEY: z.string().optional().default(''),
-  CLOUDINARY_API_SECRET: z.string().optional().default(''),
   CLOUDINARY_FOLDER: z.string().default('depth-dashboard'),
   CLOUDINARY_SECURE: booleanFromString.default(true),
 

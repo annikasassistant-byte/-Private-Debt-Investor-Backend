@@ -5,28 +5,54 @@ import logger from './logger.js';
 let configured = false;
 
 /**
- * Configure the Cloudinary SDK from environment variables.
+ * Parse cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+ * @param {string} [url]
+ * @returns {{ cloudName: string, apiKey: string, apiSecret: string } | null}
+ */
+export function parseCloudinaryUrl(url = env.CLOUDINARY_URL) {
+  if (!url || typeof url !== 'string' || !url.startsWith('cloudinary://')) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url.trim());
+    const cloudName = parsed.hostname;
+    const apiKey = decodeURIComponent(parsed.username || '');
+    const apiSecret = decodeURIComponent(parsed.password || '');
+    if (!cloudName || !apiKey || !apiSecret) return null;
+    return { cloudName, apiKey, apiSecret };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Configure Cloudinary from CLOUDINARY_URL only.
  * @returns {typeof cloudinary}
  */
 export function configureCloudinary() {
-  if (configured) {
+  if (configured) return cloudinary;
+
+  const creds = parseCloudinaryUrl(env.CLOUDINARY_URL);
+
+  if (!creds) {
+    logger.warn('Cloudinary not configured — set CLOUDINARY_URL in .env.server');
     return cloudinary;
   }
 
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
-    logger.warn('Cloudinary credentials are incomplete — uploads will fail until configured');
-  }
+  // Keep process.env in sync so the SDK / helpers that read CLOUDINARY_URL work
+  process.env.CLOUDINARY_URL = env.CLOUDINARY_URL;
 
   cloudinary.config({
-    cloud_name: env.CLOUDINARY_CLOUD_NAME,
-    api_key: env.CLOUDINARY_API_KEY,
-    api_secret: env.CLOUDINARY_API_SECRET,
+    cloud_name: creds.cloudName,
+    api_key: creds.apiKey,
+    api_secret: creds.apiSecret,
     secure: env.CLOUDINARY_SECURE,
   });
 
   configured = true;
-  logger.debug('Cloudinary configured', {
-    cloudName: env.CLOUDINARY_CLOUD_NAME || '(empty)',
+  logger.info('Cloudinary configured from CLOUDINARY_URL', {
+    cloudName: creds.cloudName,
     folder: env.CLOUDINARY_FOLDER,
   });
 
@@ -34,17 +60,16 @@ export function configureCloudinary() {
 }
 
 /**
- * Whether Cloudinary credentials appear present.
  * @returns {boolean}
  */
 export function isCloudinaryConfigured() {
-  return Boolean(
-    env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET,
-  );
+  return Boolean(parseCloudinaryUrl(env.CLOUDINARY_URL));
 }
 
 export const cloudinaryConfig = Object.freeze({
-  cloudName: env.CLOUDINARY_CLOUD_NAME,
+  get cloudName() {
+    return parseCloudinaryUrl()?.cloudName || '';
+  },
   folder: env.CLOUDINARY_FOLDER,
   secure: env.CLOUDINARY_SECURE,
 });
@@ -53,6 +78,7 @@ export { cloudinary };
 export default {
   configureCloudinary,
   isCloudinaryConfigured,
+  parseCloudinaryUrl,
   cloudinary,
   cloudinaryConfig,
 };

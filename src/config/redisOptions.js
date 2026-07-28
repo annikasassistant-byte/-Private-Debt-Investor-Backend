@@ -1,0 +1,37 @@
+import env from './env.js';
+
+/**
+ * Password / TLS are embedded in REDIS_URL (redis:// or rediss://).
+ * @param {string} [url]
+ * @returns {boolean}
+ */
+export function isRedisTlsUrl(url = env.REDIS_URL) {
+  return String(url || '').startsWith('rediss://');
+}
+
+/**
+ * Shared ioredis options — URL-only auth (no REDIS_PASSWORD).
+ * @param {import('ioredis').RedisOptions} [overrides]
+ * @returns {import('ioredis').RedisOptions}
+ */
+export function buildRedisOptions(overrides = {}) {
+  const options = {
+    keyPrefix: env.REDIS_KEY_PREFIX,
+    connectTimeout: env.REDIS_CONNECT_TIMEOUT_MS,
+    enableOfflineQueue: env.REDIS_ENABLE_OFFLINE_QUEUE,
+    maxRetriesPerRequest: 1,
+    lazyConnect: true,
+    showFriendlyErrorStack: env.NODE_ENV !== 'production',
+    ...overrides,
+  };
+
+  if (isRedisTlsUrl()) {
+    options.tls = {
+      rejectUnauthorized: env.NODE_ENV === 'production',
+    };
+  }
+
+  return options;
+}
+
+export default { isRedisTlsUrl, buildRedisOptions };

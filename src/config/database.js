@@ -35,15 +35,20 @@ export async function connectDatabase(options = {}) {
 
     for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
       try {
-        await mongoose.connect(env.MONGODB_URI, {
+        const connectOptions = {
           maxPoolSize: env.MONGODB_MAX_POOL_SIZE,
           minPoolSize: env.MONGODB_MIN_POOL_SIZE,
           serverSelectionTimeoutMS: env.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
           socketTimeoutMS: env.MONGODB_SOCKET_TIMEOUT_MS,
           connectTimeoutMS: env.MONGODB_CONNECT_TIMEOUT_MS,
           autoIndex: env.MONGODB_AUTO_INDEX,
-          family: 4,
-        });
+        };
+
+        if (env.MONGODB_FAMILY) {
+          connectOptions.family = env.MONGODB_FAMILY;
+        }
+
+        await mongoose.connect(env.MONGODB_URI, connectOptions);
 
         isConnected = true;
         logger.info('MongoDB connected successfully', {
