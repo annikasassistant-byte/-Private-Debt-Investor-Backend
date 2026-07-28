@@ -27,6 +27,7 @@ import {
 } from './middlewares/index.js';
 
 import routes from './routes/index.js';
+import { getStatusPayload, renderStatusPage } from './views/statusPage.js';
 
 /**
  * Build and configure the Express application.
@@ -79,6 +80,15 @@ export function createExpressApp() {
     }),
   );
 
+  // Status page assets (spinner boot script) — does not affect API routes
+  app.use(
+    '/status-assets',
+    express.static(path.resolve(process.cwd(), 'src/public'), {
+      maxAge: env.NODE_ENV === 'production' ? '1h' : 0,
+      fallthrough: true,
+    }),
+  );
+
   // ---- Swagger docs ----
   if (env.SWAGGER_ENABLED) {
     const docsPath = env.SWAGGER_PATH || '/api/docs';
@@ -96,15 +106,20 @@ export function createExpressApp() {
   // ---- API routes ----
   app.use(routes);
 
-  // Convenience root
-  app.get('/', (_req, res) => {
-    res.json({
-      success: true,
-      message: env.APP_NAME,
-      version: env.APP_VERSION,
-      docs: env.SWAGGER_ENABLED ? '/api/docs' : null,
-      apis: ['/api/v1', '/api/v2'],
-    });
+  // Depth Capital status UI at `/` — JSON still available via ?format=json / Accept
+  app.get('/', (req, res) => {
+    const wantsJson =
+      req.query.format === 'json' ||
+      (typeof req.headers.accept === 'string' &&
+        req.headers.accept.includes('application/json') &&
+        !req.headers.accept.includes('text/html'));
+
+    if (wantsJson) {
+      return res.json(getStatusPayload());
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(renderStatusPage());
   });
 
   // ---- 404 & errors ----
