@@ -1,15 +1,15 @@
+import type { FilterQuery, Query } from 'mongoose';
 import env from '../config/env.js';
+import type {
+  ListPaginationMeta,
+  PaginationQueryInput,
+  ParsedPagination,
+} from '../types/common.js';
 
 /**
  * Parse pagination query params with sane defaults and caps.
- * @param {object} query
- * @param {string|number} [query.page]
- * @param {string|number} [query.limit]
- * @param {string} [query.sort]
- * @param {string} [query.order]
- * @returns {{ page: number, limit: number, skip: number, sort: string, order: 'asc'|'desc', sortBy: Record<string, 1|-1> }}
  */
-export function parsePagination(query = {}) {
+export function parsePagination(query: PaginationQueryInput = {}): ParsedPagination {
   const page = Math.max(
     1,
     Number.parseInt(String(query.page ?? env.PAGINATION_DEFAULT_PAGE), 10) || 1,
@@ -37,10 +37,16 @@ export function parsePagination(query = {}) {
 
 /**
  * Build pagination metadata for list responses.
- * @param {{ page: number, limit: number, total: number }} params
- * @returns {{ page: number, limit: number, total: number, totalPages: number, hasNextPage: boolean, hasPrevPage: boolean }}
  */
-export function buildPaginationMeta({ page, limit, total }) {
+export function buildPaginationMeta({
+  page,
+  limit,
+  total,
+}: {
+  page: number;
+  limit: number;
+  total: number;
+}): ListPaginationMeta {
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
 
   return {
@@ -55,14 +61,14 @@ export function buildPaginationMeta({ page, limit, total }) {
 
 /**
  * Apply pagination to a Mongoose query and return results + meta.
- * @param {import('mongoose').Query} query
- * @param {ReturnType<typeof parsePagination>} pagination
- * @param {import('mongoose').FilterQuery<any>} [countFilter]
- * @returns {Promise<{ data: unknown[], meta: ReturnType<typeof buildPaginationMeta> }>}
  */
-export async function paginateQuery(query, pagination, countFilter) {
+export async function paginateQuery<T = unknown>(
+  query: Query<T[], T>,
+  pagination: ParsedPagination,
+  countFilter?: FilterQuery<T>,
+): Promise<{ data: T[]; meta: ListPaginationMeta }> {
   const model = query.model;
-  const filter = countFilter ?? query.getFilter();
+  const filter = countFilter ?? (query.getFilter() as FilterQuery<T>);
 
   const [data, total] = await Promise.all([
     query

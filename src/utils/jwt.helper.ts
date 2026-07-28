@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { type JwtPayload, type SignOptions } from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import {
   jwtConfig,
@@ -10,14 +10,37 @@ import { TOKEN_TYPES } from '../enums/tokenTypes.js';
 import { UnauthorizedException } from '../exceptions/UnauthorizedException.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
 import { MESSAGES } from '../constants/messages.js';
+import type {
+  JwtAccessPayload,
+  JwtRefreshPayload,
+  SignedTokenPairResult,
+  SignedTokenResult,
+} from '../types/common.js';
+
+export type AccessTokenSignPayload = {
+  sub: string;
+  role?: string;
+  permissions?: string[];
+  email?: string;
+  jti?: string;
+  [key: string]: unknown;
+};
+
+export type RefreshTokenSignPayload = {
+  sub: string;
+  jti?: string;
+  deviceId?: string | null;
+  family?: string;
+  [key: string]: unknown;
+};
 
 /**
  * Sign an access token.
- * @param {{ sub: string, role?: string, permissions?: string[], [key: string]: unknown }} payload
- * @param {import('jsonwebtoken').SignOptions} [options]
- * @returns {{ token: string, jti: string, expiresIn: string }}
  */
-export function signAccessToken(payload, options = {}) {
+export function signAccessToken(
+  payload: AccessTokenSignPayload,
+  options: SignOptions = {},
+): SignedTokenResult {
   const jti = payload.jti || uuidv4();
   const token = jwt.sign(
     {
@@ -29,7 +52,7 @@ export function signAccessToken(payload, options = {}) {
     {
       ...accessTokenSignOptions,
       ...options,
-    },
+    } as SignOptions,
   );
 
   return { token, jti, expiresIn: options.expiresIn || jwtConfig.accessExpiresIn };
@@ -37,11 +60,11 @@ export function signAccessToken(payload, options = {}) {
 
 /**
  * Sign a refresh token.
- * @param {{ sub: string, [key: string]: unknown }} payload
- * @param {import('jsonwebtoken').SignOptions} [options]
- * @returns {{ token: string, jti: string, expiresIn: string }}
  */
-export function signRefreshToken(payload, options = {}) {
+export function signRefreshToken(
+  payload: RefreshTokenSignPayload,
+  options: SignOptions = {},
+): SignedTokenResult {
   const jti = payload.jti || uuidv4();
   const token = jwt.sign(
     {
@@ -53,7 +76,7 @@ export function signRefreshToken(payload, options = {}) {
     {
       ...refreshTokenSignOptions,
       ...options,
-    },
+    } as SignOptions,
   );
 
   return { token, jti, expiresIn: options.expiresIn || jwtConfig.refreshExpiresIn };
@@ -61,10 +84,8 @@ export function signRefreshToken(payload, options = {}) {
 
 /**
  * Sign both access and refresh tokens.
- * @param {{ sub: string, role?: string, permissions?: string[], [key: string]: unknown }} payload
- * @returns {{ accessToken: string, refreshToken: string, accessJti: string, refreshJti: string }}
  */
-export function signTokenPair(payload) {
+export function signTokenPair(payload: AccessTokenSignPayload): SignedTokenPairResult {
   const access = signAccessToken(payload);
   const refresh = signRefreshToken({ sub: payload.sub });
 
@@ -80,24 +101,23 @@ export function signTokenPair(payload) {
 
 /**
  * Verify an access token.
- * @param {string} token
- * @returns {jwt.JwtPayload}
  */
-export function verifyAccessToken(token) {
+export function verifyAccessToken(token: string): JwtPayload & JwtAccessPayload {
   try {
-    const decoded = jwt.verify(token, jwtConfig.accessSecret, tokenVerifyOptions);
+    const decoded = jwt.verify(token, jwtConfig.accessSecret, tokenVerifyOptions) as JwtPayload &
+      JwtAccessPayload & { type?: string };
 
     if (decoded.type && decoded.type !== TOKEN_TYPES.ACCESS) {
       throw new UnauthorizedException(MESSAGES.TOKEN_INVALID, ERROR_CODES.TOKEN_INVALID);
     }
 
-    return /** @type {jwt.JwtPayload} */ (decoded);
-  } catch (error) {
+    return decoded;
+  } catch (error: unknown) {
     if (error instanceof UnauthorizedException) {
       throw error;
     }
 
-    if (error.name === 'TokenExpiredError') {
+    if (error instanceof Error && error.name === 'TokenExpiredError') {
       throw new UnauthorizedException(MESSAGES.TOKEN_EXPIRED, ERROR_CODES.TOKEN_EXPIRED);
     }
 
@@ -107,12 +127,11 @@ export function verifyAccessToken(token) {
 
 /**
  * Verify a refresh token.
- * @param {string} token
- * @returns {jwt.JwtPayload}
  */
-export function verifyRefreshToken(token) {
+export function verifyRefreshToken(token: string): JwtPayload & JwtRefreshPayload {
   try {
-    const decoded = jwt.verify(token, jwtConfig.refreshSecret, tokenVerifyOptions);
+    const decoded = jwt.verify(token, jwtConfig.refreshSecret, tokenVerifyOptions) as JwtPayload &
+      JwtRefreshPayload & { type?: string };
 
     if (decoded.type && decoded.type !== TOKEN_TYPES.REFRESH) {
       throw new UnauthorizedException(
@@ -121,13 +140,13 @@ export function verifyRefreshToken(token) {
       );
     }
 
-    return /** @type {jwt.JwtPayload} */ (decoded);
-  } catch (error) {
+    return decoded;
+  } catch (error: unknown) {
     if (error instanceof UnauthorizedException) {
       throw error;
     }
 
-    if (error.name === 'TokenExpiredError') {
+    if (error instanceof Error && error.name === 'TokenExpiredError') {
       throw new UnauthorizedException(MESSAGES.TOKEN_EXPIRED, ERROR_CODES.TOKEN_EXPIRED);
     }
 
@@ -140,10 +159,8 @@ export function verifyRefreshToken(token) {
 
 /**
  * Decode without verification (introspection / debugging).
- * @param {string} token
- * @returns {null | jwt.JwtPayload | string}
  */
-export function decodeToken(token) {
+export function decodeToken(token: string): null | JwtPayload | string {
   return jwt.decode(token);
 }
 

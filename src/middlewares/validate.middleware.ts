@@ -1,32 +1,32 @@
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { validationResult } from 'express-validator';
 import { ApiError } from '../utils/ApiError.js';
 import { MESSAGES } from '../constants/messages.js';
 
 /**
  * Run express-validator validationResult and throw ApiError on failure.
- * @type {import('express').RequestHandler}
  */
-export function validate(req, _res, next) {
+export function validate(req: Request, _res: Response, next: NextFunction): void {
   const result = validationResult(req);
   if (result.isEmpty()) {
-    return next();
+    next();
+    return;
   }
 
   const errors = result.array({ onlyFirstError: false }).map((err) => ({
-    field: err.path || err.param || err.type || 'unknown',
+    field: ('path' in err && err.path) || ('param' in err && err.param) || err.type || 'unknown',
     message: err.msg,
-    value: err.value,
-    location: err.location,
+    value: 'value' in err ? err.value : undefined,
+    location: 'location' in err ? err.location : undefined,
   }));
 
-  return next(ApiError.validation(MESSAGES.VALIDATION_FAILED, errors));
+  next(ApiError.validation(MESSAGES.VALIDATION_FAILED, errors));
 }
 
 /**
  * Factory that returns validate middleware (for chaining after validator arrays).
- * @returns {import('express').RequestHandler}
  */
-export function validateRequest() {
+export function validateRequest(): RequestHandler {
   return validate;
 }
 

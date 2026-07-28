@@ -4,11 +4,7 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
 import { MESSAGES } from '../constants/messages.js';
 
 export class ValidationException extends AppException {
-  /**
-   * @param {string} [message]
-   * @param {unknown} [details]
-   */
-  constructor(message = MESSAGES.VALIDATION_FAILED, details = null) {
+  constructor(message: string = MESSAGES.VALIDATION_FAILED, details: unknown = null) {
     super(
       message,
       HTTP_STATUS.UNPROCESSABLE_ENTITY,

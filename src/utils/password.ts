@@ -3,11 +3,11 @@ import env from '../config/env.js';
 
 /**
  * Hash a plain-text password.
- * @param {string} plainPassword
- * @param {number} [rounds]
- * @returns {Promise<string>}
  */
-export async function hashPassword(plainPassword, rounds = env.BCRYPT_ROUNDS) {
+export async function hashPassword(
+  plainPassword: string,
+  rounds: number = env.BCRYPT_ROUNDS,
+): Promise<string> {
   if (!plainPassword || typeof plainPassword !== 'string') {
     throw new TypeError('Password must be a non-empty string');
   }
@@ -18,11 +18,11 @@ export async function hashPassword(plainPassword, rounds = env.BCRYPT_ROUNDS) {
 
 /**
  * Compare plain password against a bcrypt hash.
- * @param {string} plainPassword
- * @param {string} hashedPassword
- * @returns {Promise<boolean>}
  */
-export async function comparePassword(plainPassword, hashedPassword) {
+export async function comparePassword(
+  plainPassword: string,
+  hashedPassword: string,
+): Promise<boolean> {
   if (!plainPassword || !hashedPassword) {
     return false;
   }
@@ -32,22 +32,19 @@ export async function comparePassword(plainPassword, hashedPassword) {
 
 /**
  * Synchronous hash (prefer async in request paths).
- * @param {string} plainPassword
- * @param {number} [rounds]
- * @returns {string}
  */
-export function hashPasswordSync(plainPassword, rounds = env.BCRYPT_ROUNDS) {
+export function hashPasswordSync(
+  plainPassword: string,
+  rounds: number = env.BCRYPT_ROUNDS,
+): string {
   const salt = bcrypt.genSaltSync(rounds);
   return bcrypt.hashSync(plainPassword, salt);
 }
 
 /**
  * Synchronous compare.
- * @param {string} plainPassword
- * @param {string} hashedPassword
- * @returns {boolean}
  */
-export function comparePasswordSync(plainPassword, hashedPassword) {
+export function comparePasswordSync(plainPassword: string, hashedPassword: string): boolean {
   if (!plainPassword || !hashedPassword) {
     return false;
   }

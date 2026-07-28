@@ -1,12 +1,27 @@
+import type { Types } from 'mongoose';
 import User from '../models/user.model.js';
 import { BaseRepository } from './base.repository.js';
+import type { RepositoryOptions } from '../types/common.js';
+import type { IUser } from '../types/models.js';
 
-export class UserRepository extends BaseRepository {
+type Id = string | Types.ObjectId;
+
+export interface ListUsersOptions {
+  page?: number;
+  limit?: number;
+  sort?: string | Record<string, 1 | -1>;
+  search?: string;
+  role?: string | Types.ObjectId;
+  isActive?: boolean;
+  emailVerified?: boolean;
+}
+
+export class UserRepository extends BaseRepository<IUser> {
   constructor() {
-    super(User, 'User');
+    super(User as import('mongoose').Model<IUser>, 'User');
   }
 
-  async findByEmail(email, options = {}) {
+  async findByEmail(email: string, options: RepositoryOptions = {}) {
     const normalized = String(email || '').trim().toLowerCase();
     return this.findOne(
       { email: normalized },
@@ -22,7 +37,7 @@ export class UserRepository extends BaseRepository {
   /**
    * Fetch user with password (+ optional 2FA secret) for auth flows.
    */
-  async findByEmailForAuth(email) {
+  async findByEmailForAuth(email: string) {
     const normalized = String(email || '').trim().toLowerCase();
     return this.model
       .findOne({ email: normalized })
@@ -32,7 +47,7 @@ export class UserRepository extends BaseRepository {
       .exec();
   }
 
-  async findByIdForAuth(id) {
+  async findByIdForAuth(id: Id) {
     return this.model
       .findById(id)
       .select('+password +twoFactorSecret')
@@ -41,7 +56,7 @@ export class UserRepository extends BaseRepository {
       .exec();
   }
 
-  async findByIdWithRole(id, options = {}) {
+  async findByIdWithRole(id: Id, options: RepositoryOptions = {}) {
     return this.findById(id, {
       populate: [
         { path: 'role', populate: { path: 'permissions' } },
@@ -59,8 +74,8 @@ export class UserRepository extends BaseRepository {
     role,
     isActive,
     emailVerified,
-  } = {}) {
-    const filter = {};
+  }: ListUsersOptions = {}) {
+    const filter: Record<string, unknown> = {};
     if (role) filter.role = role;
     if (typeof isActive === 'boolean') filter.isActive = isActive;
     if (typeof emailVerified === 'boolean') filter.emailVerified = emailVerified;
@@ -79,7 +94,11 @@ export class UserRepository extends BaseRepository {
     });
   }
 
-  async updatePassword(userId, hashedOrPlainPassword, actor = null) {
+  async updatePassword(
+    userId: Id,
+    hashedOrPlainPassword: string,
+    actor: string | null = null,
+  ) {
     const user = await this.findByIdForAuth(userId);
     if (!user) return null;
     user.password = hashedOrPlainPassword;
@@ -87,11 +106,11 @@ export class UserRepository extends BaseRepository {
     return user.save();
   }
 
-  async setActive(userId, isActive, actor = null) {
+  async setActive(userId: Id, isActive: boolean, actor: string | null = null) {
     return this.update(userId, { isActive }, { actor });
   }
 
-  async removeDevice(userId, deviceId) {
+  async removeDevice(userId: Id, deviceId: string) {
     return this.model.findByIdAndUpdate(
       userId,
       { $pull: { devices: { deviceId } } },
@@ -99,7 +118,7 @@ export class UserRepository extends BaseRepository {
     );
   }
 
-  async clearDevices(userId) {
+  async clearDevices(userId: Id) {
     return this.model.findByIdAndUpdate(userId, { $set: { devices: [] } }, { new: true });
   }
 }
