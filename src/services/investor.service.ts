@@ -65,8 +65,18 @@ export class InvestorService {
       throw ApiError.conflict('A user with this email already exists');
     }
 
-    const role = await this.roles.findBySlug(ROLES.INVESTOR);
-    if (!role) throw ApiError.badRequest('Investor role missing. Seed roles first.');
+    let role = await this.roles.findBySlug(ROLES.INVESTOR);
+    if (!role) {
+      // Self-heal: ensure system investor role exists without requiring a manual re-seed mid-request
+      role = await this.roles.create({
+        name: 'Investor',
+        slug: ROLES.INVESTOR,
+        description: 'Investor portal access to own data',
+        permissions: [],
+        isSystem: true,
+        isActive: true,
+      });
+    }
 
     const parts = name.split(/\s+/);
     const firstName = parts[0] || 'Investor';

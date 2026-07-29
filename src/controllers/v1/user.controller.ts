@@ -27,6 +27,15 @@ export const updateMe = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, user, MESSAGES.UPDATED);
 });
 
+export const updateNotificationPreferences = asyncHandler(async (req, res) => {
+  const user = await container.userService.updateNotificationPreferences(
+    req.user._id || req.user.id,
+    req.body,
+    requestContext(req),
+  );
+  return ApiResponse.ok(res, user, MESSAGES.UPDATED);
+});
+
 export const uploadAvatar = asyncHandler(async (req, res) => {
   const user = await container.userService.uploadAvatar(
     req.user._id || req.user.id,
@@ -47,7 +56,12 @@ export const deleteMe = asyncHandler(async (req, res) => {
 
 export const getUsers = asyncHandler(async (req, res) => {
   const result = await container.userService.listUsers(req.user, req.query);
-  return ApiResponse.paginated(res, result.data, result.meta || result.pagination, MESSAGES.LIST_FETCHED);
+  return ApiResponse.paginated(
+    res,
+    result.data,
+    result.meta || result.pagination,
+    MESSAGES.LIST_FETCHED,
+  );
 });
 
 export const getUser = asyncHandler(async (req, res) => {
@@ -93,6 +107,7 @@ export const exportUsers = asyncHandler(async (req, res) => {
 export default {
   getMe,
   updateMe,
+  updateNotificationPreferences,
   uploadAvatar,
   deleteMe,
   getUsers,

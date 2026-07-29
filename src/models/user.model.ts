@@ -157,11 +157,28 @@ const userSchema = new Schema({
     select: false,
     default: null,
   },
+  notificationPreferences: {
+    type: {
+      paymentConfirmations: { type: Boolean, default: true },
+      upcomingDueDates: { type: Boolean, default: true },
+      newReports: { type: Boolean, default: true },
+      platformAnnouncements: { type: Boolean, default: true },
+    },
+    default: () => ({
+      paymentConfirmations: true,
+      upcomingDueDates: true,
+      newReports: true,
+      platformAnnouncements: true,
+    }),
+  },
 });
 
 applyBaseModel(userSchema, mongoose, { softDelete: true, audit: true });
 
-userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { isDeleted: { $ne: true } } });
+userSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: { $ne: true } } },
+);
 userSchema.index({ email: 1, isDeleted: 1 });
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ createdAt: -1 });
@@ -259,7 +276,7 @@ userSchema.methods.upsertDevice = function upsertDevice(device) {
     refreshTokenId: device.refreshTokenId || null,
   };
   if (idx >= 0) {
-    this.devices[idx] = { ...this.devices[idx].toObject?.() ?? this.devices[idx], ...payload };
+    this.devices[idx] = { ...(this.devices[idx].toObject?.() ?? this.devices[idx]), ...payload };
   } else {
     this.devices.push(payload);
     if (this.devices.length > 20) {

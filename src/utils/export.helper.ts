@@ -123,6 +123,119 @@ export function exportToPdf(rows, options = {}) {
   });
 }
 
+function money(n) {
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+  }).format(Number(n) || 0);
+}
+
+/**
+ * Professional investor statement PDF with summary + payment table.
+ * @param {{ investorName: string, investment: any, payments: any[] }} payload
+ * @returns {Promise<Buffer>}
+ */
+export function exportInvestmentStatementPdf(payload) {
+  const { investorName, investment, payments = [] } = payload;
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 48, size: 'A4', layout: 'landscape' });
+    const stream = new PassThrough();
+    const chunks = [];
+
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+    doc.on('error', reject);
+    doc.pipe(stream);
+
+    const generatedAt = new Date().toISOString().slice(0, 10);
+
+    doc.fontSize(18).font('Helvetica-Bold').text('Depth Capital — Investor Statement');
+    doc.moveDown(0.35);
+    doc.fontSize(10).font('Helvetica').fillColor('#555555').text(`Generated: ${generatedAt}`);
+    doc.fillColor('#000000');
+    doc.moveDown();
+
+    doc.fontSize(12).font('Helvetica-Bold').text('Investor');
+    doc
+      .fontSize(11)
+      .font('Helvetica')
+      .text(investorName || '—');
+    doc.moveDown(0.6);
+
+    const summary = [
+      ['Investment Principal', money(investment?.principal)],
+      ['Interest Rate', `${investment?.interestRate ?? 0}%`],
+      ['Current Balance', money(investment?.outstandingBalance)],
+      ['Principal Repaid', money(investment?.principalRepaid)],
+      ['Interest Earned', money(investment?.interestEarned)],
+      ['Status', String(investment?.status || '—')],
+      ['Maturity Date', investment?.maturityDate || '—'],
+    ];
+
+    for (const [label, value] of summary) {
+      doc.font('Helvetica-Bold').text(`${label}: `, { continued: true });
+      doc.font('Helvetica').text(String(value));
+    }
+
+    doc.moveDown();
+    doc.fontSize(12).font('Helvetica-Bold').text('Payment Schedule');
+    doc.moveDown(0.4);
+
+    const headers = [
+      'Due Date',
+      'Payment Date',
+      'Principal',
+      'Interest',
+      'Total',
+      'Balance',
+      'Status',
+    ];
+    const colWidths = [90, 90, 90, 90, 90, 90, 90];
+    const startX = doc.x;
+    let y = doc.y;
+
+    doc.fontSize(9).font('Helvetica-Bold');
+    let x = startX;
+    headers.forEach((h, i) => {
+      doc.text(h, x, y, { width: colWidths[i], continued: false });
+      x += colWidths[i];
+    });
+    y += 16;
+    doc
+      .moveTo(startX, y - 4)
+      .lineTo(startX + colWidths.reduce((a, b) => a + b, 0), y - 4)
+      .stroke('#cccccc');
+
+    doc.font('Helvetica').fontSize(8);
+    for (const p of payments) {
+      if (y > doc.page.height - 48) {
+        doc.addPage();
+        y = 48;
+      }
+      const cells = [
+        p.dueDate || '',
+        p.paymentDate || '',
+        money(p.principal),
+        money(p.interest),
+        money(p.total),
+        money(p.remainingBalance),
+        p.status || '',
+      ];
+      x = startX;
+      cells.forEach((cell, i) => {
+        doc.text(String(cell), x, y, { width: colWidths[i] });
+        x += colWidths[i];
+      });
+      y += 14;
+    }
+
+    doc.end();
+  });
+}
+
 /**
  * Map format string to an exporter and content-type.
  * @param {'csv'|'excel'|'xlsx'|'pdf'} format
@@ -187,6 +300,7 @@ export default {
   exportToCsv,
   exportToExcel,
   exportToPdf,
+  exportInvestmentStatementPdf,
   exportData,
   sendExport,
 };

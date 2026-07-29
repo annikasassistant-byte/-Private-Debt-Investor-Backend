@@ -6,6 +6,7 @@ import {
   updateUserValidator,
   userIdParamValidator,
   exportUsersValidator,
+  notificationPreferencesValidator,
 } from '../../validators/user.validator.js';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
@@ -82,6 +83,14 @@ router.patch(
   updateProfileValidator,
   validate,
   userController.updateMe,
+);
+
+router.patch(
+  '/me/notification-preferences',
+  invalidateUsersCache,
+  notificationPreferencesValidator,
+  validate,
+  userController.updateNotificationPreferences,
 );
 
 /**

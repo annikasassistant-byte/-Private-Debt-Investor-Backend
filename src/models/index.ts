@@ -11,3 +11,4 @@ export { default as Payment, paymentSchema } from './payment.model.js';
 export { default as Report, reportSchema } from './report.model.js';
 export { default as Contract, contractSchema } from './contract.model.js';
 export { default as TimelineEvent, timelineEventSchema } from './timelineEvent.model.js';
+export { default as ExportHistory, exportHistorySchema } from './exportHistory.model.js';

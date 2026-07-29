@@ -71,14 +71,25 @@ export function createExpressApp() {
   app.use(maintenanceMiddleware);
   app.use(csrfMiddleware);
 
-  // ---- Static uploads ----
+  // ---- Static uploads (avatars only — reports/contracts use authenticated download routes) ----
+  const uploadsRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
   app.use(
-    '/uploads',
-    express.static(path.resolve(process.cwd(), env.UPLOAD_DIR), {
+    '/uploads/avatars',
+    express.static(path.join(uploadsRoot, 'avatars'), {
       maxAge: env.NODE_ENV === 'production' ? '1d' : 0,
       fallthrough: true,
     }),
   );
+  // Dev convenience: allow direct /uploads access outside production for local debugging only
+  if (env.NODE_ENV !== 'production') {
+    app.use(
+      '/uploads',
+      express.static(uploadsRoot, {
+        maxAge: 0,
+        fallthrough: true,
+      }),
+    );
+  }
 
   // Status page assets (spinner boot script) — does not affect API routes
   const statusAssetsDir = path.resolve(

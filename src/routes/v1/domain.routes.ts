@@ -3,8 +3,9 @@ import * as ctrl from '../../controllers/v1/domain.controller.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorize } from '../../middlewares/authorize.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
-import { attachInvestorProfile, requireAdmin } from '../../middlewares/ownership.middleware.js';
+import { attachInvestorProfile } from '../../middlewares/ownership.middleware.js';
 import { uploadSingle } from '../../middlewares/upload.middleware.js';
+import { validateMagicBytes } from '../../middlewares/magicBytes.middleware.js';
 import { ROLES } from '../../enums/roles.js';
 import {
   paginationQuery,
@@ -13,7 +14,14 @@ import {
   createInvestmentValidator,
   updateInvestmentValidator,
   markPaidValidator,
+  cancelPaymentValidator,
+  earlyRepaymentValidator,
   createLoanValidator,
+  updateLoanValidator,
+  createReportValidator,
+  updateReportValidator,
+  createContractValidator,
+  updateContractValidator,
   idParam,
   investmentIdParam,
 } from '../../validators/domain.validator.js';
@@ -49,16 +57,25 @@ router.post(
   validate,
   ctrl.regenerateSchedule,
 );
+router.post(
+  '/investments/:id/early-repayment',
+  ...admin,
+  earlyRepaymentValidator,
+  validate,
+  ctrl.earlyRepayment,
+);
 router.get('/investments/:id/payments', ...anyAuth, idParam, validate, ctrl.listInvestmentPayments);
 
 // Payments / schedule
 router.get('/payments', ...anyAuth, paginationQuery, validate, ctrl.listPayments);
 router.post('/payments/:id/mark-paid', ...admin, markPaidValidator, validate, ctrl.markPaymentPaid);
+router.post('/payments/:id/cancel', ...admin, cancelPaymentValidator, validate, ctrl.cancelPayment);
 
 // Loans
 router.get('/loans', ...anyAuth, paginationQuery, validate, ctrl.listLoans);
 router.post('/loans', ...admin, createLoanValidator, validate, ctrl.createLoan);
-router.patch('/loans/:id', ...admin, idParam, validate, ctrl.updateLoan);
+router.get('/loans/:id', ...anyAuth, idParam, validate, ctrl.getLoan);
+router.patch('/loans/:id', ...admin, updateLoanValidator, validate, ctrl.updateLoan);
 router.delete('/loans/:id', ...admin, idParam, validate, ctrl.deleteLoan);
 
 // Dashboard + timeline
@@ -68,16 +85,34 @@ router.get('/timeline', ...anyAuth, paginationQuery, validate, ctrl.listTimeline
 
 // Reports
 router.get('/reports', ...anyAuth, paginationQuery, validate, ctrl.listReports);
-router.post('/reports', ...admin, uploadSingle('file'), ctrl.createReport);
+router.post(
+  '/reports',
+  ...admin,
+  uploadSingle('file'),
+  validateMagicBytes('file'),
+  createReportValidator,
+  validate,
+  ctrl.createReport,
+);
 router.get('/reports/:id', ...anyAuth, idParam, validate, ctrl.getReport);
-router.patch('/reports/:id', ...admin, idParam, validate, ctrl.updateReport);
+router.get('/reports/:id/download', ...anyAuth, idParam, validate, ctrl.downloadReport);
+router.patch('/reports/:id', ...admin, updateReportValidator, validate, ctrl.updateReport);
 router.delete('/reports/:id', ...admin, idParam, validate, ctrl.deleteReport);
 
 // Contracts
 router.get('/contracts', ...anyAuth, paginationQuery, validate, ctrl.listContracts);
-router.post('/contracts', ...admin, uploadSingle('file'), ctrl.createContract);
+router.post(
+  '/contracts',
+  ...admin,
+  uploadSingle('file'),
+  validateMagicBytes('file'),
+  createContractValidator,
+  validate,
+  ctrl.createContract,
+);
 router.get('/contracts/:id', ...anyAuth, idParam, validate, ctrl.getContract);
-router.patch('/contracts/:id', ...admin, idParam, validate, ctrl.updateContract);
+router.get('/contracts/:id/download', ...anyAuth, idParam, validate, ctrl.downloadContract);
+router.patch('/contracts/:id', ...admin, updateContractValidator, validate, ctrl.updateContract);
 router.delete('/contracts/:id', ...admin, idParam, validate, ctrl.deleteContract);
 
 // Exports

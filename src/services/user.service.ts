@@ -46,10 +46,19 @@ export class UserService {
   }
 
   async updateProfile(userId, input, context = {}) {
-    const allowed = ['firstName', 'lastName', 'phone', 'avatar'];
+    const allowed = ['firstName', 'lastName', 'phone', 'avatar', 'notificationPreferences'];
     const update = {};
     for (const key of allowed) {
       if (input[key] !== undefined) update[key] = input[key];
+    }
+    if (input.notificationPreferences && typeof input.notificationPreferences === 'object') {
+      const prefs = input.notificationPreferences;
+      update.notificationPreferences = {
+        paymentConfirmations: prefs.paymentConfirmations !== false,
+        upcomingDueDates: prefs.upcomingDueDates !== false,
+        newReports: prefs.newReports !== false,
+        platformAnnouncements: prefs.platformAnnouncements !== false,
+      };
     }
     if (!Object.keys(update).length) {
       throw ApiError.badRequest('No valid profile fields to update');
@@ -70,6 +79,10 @@ export class UserService {
     });
 
     return this.#sanitize(await this.users.findByIdWithRole(userId));
+  }
+
+  async updateNotificationPreferences(userId, prefs, context = {}) {
+    return this.updateProfile(userId, { notificationPreferences: prefs }, context);
   }
 
   /**
@@ -190,10 +203,7 @@ export class UserService {
 
     const user = await this.users.update(targetId, update, {
       actor: actor.id || actor._id,
-      populate: [
-        { path: 'role', populate: { path: 'permissions' } },
-        { path: 'permissions' },
-      ],
+      populate: [{ path: 'role', populate: { path: 'permissions' } }, { path: 'permissions' }],
     });
 
     await this.cache.invalidate(`user:profile:${targetId}`);
@@ -213,7 +223,8 @@ export class UserService {
   }
 
   #sanitize(user) {
-    const obj = typeof user.toObject === 'function' ? user.toObject({ virtuals: true }) : { ...user };
+    const obj =
+      typeof user.toObject === 'function' ? user.toObject({ virtuals: true }) : { ...user };
     delete obj.password;
     delete obj.twoFactorSecret;
     delete obj.emailVerificationToken;

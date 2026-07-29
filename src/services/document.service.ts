@@ -1,6 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { ApiError } from '../utils/ApiError.js';
-import { formatBytes, mapContract, mapReport } from '../utils/domain.mappers.js';
-import { exportToCsv, exportToPdf } from '../utils/export.helper.js';
+import {
+  formatBytes,
+  mapContract,
+  mapReport,
+  mapInvestment,
+  mapPayment,
+} from '../utils/domain.mappers.js';
+import { exportToCsv, exportInvestmentStatementPdf } from '../utils/export.helper.js';
 import type {
   ReportRepository,
   ContractRepository,
@@ -9,7 +17,47 @@ import type {
   InvestorRepository,
 } from '../repositories/domain.repositories.js';
 import type { AuditRepository } from '../repositories/audit.repository.js';
-import { mapInvestment, mapPayment } from '../utils/domain.mappers.js';
+import env from '../config/env.js';
+import ExportHistory from '../models/exportHistory.model.js';
+import { PAYMENT_STATUS } from '../enums/domain.js';
+
+function parseAssignedInvestors(input: Record<string, any>): string[] {
+  if (Array.isArray(input.assignedInvestors)) {
+    return input.assignedInvestors.map(String).filter(Boolean);
+  }
+  if (typeof input.assignedInvestors === 'string' && input.assignedInvestors.trim()) {
+    try {
+      const parsed = JSON.parse(input.assignedInvestors);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      return input.assignedInvestors
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    }
+  }
+  if (input.investorId) return [String(input.investorId)];
+  return [];
+}
+
+function resolveUploadPath(fileUrl: string): string | null {
+  if (!fileUrl) return null;
+  const uploadsRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
+  let relative = fileUrl.replace(/^\/uploads\/?/, '').replace(/^uploads\/?/, '');
+  relative = relative.split('?')[0].split('#')[0];
+  const absolute = path.resolve(uploadsRoot, relative);
+  if (!absolute.startsWith(uploadsRoot)) return null;
+  if (!fs.existsSync(absolute)) return null;
+  return absolute;
+}
+
+function assertAssigned(doc: any, investorScopeId?: string | null, label = 'Document') {
+  if (!investorScopeId) return;
+  const assigned = (doc.assignedInvestors || []).map(String);
+  if (!assigned.includes(String(investorScopeId))) {
+    throw ApiError.forbidden(`${label} not assigned to you`);
+  }
+}
 
 export class DocumentService {
   constructor(
@@ -21,11 +69,7 @@ export class DocumentService {
   async listReports(query: Record<string, any> = {}, investorScopeId?: string | null) {
     const filter: Record<string, unknown> = {};
     if (investorScopeId) {
-      filter.$or = [
-        { assignedInvestors: investorScopeId },
-        { assignedInvestors: { $size: 0 } },
-        { assignedInvestors: { $exists: false } },
-      ];
+      filter.assignedInvestors = investorScopeId;
     }
     if (query.category) filter.category = query.category;
     const result = await this.reports.findMany(filter, {
@@ -41,11 +85,8 @@ export class DocumentService {
 
   async createReport(input: Record<string, any>, file: any, actorId?: string) {
     if (!input.title) throw ApiError.badRequest('title is required');
-    const assigned = Array.isArray(input.assignedInvestors)
-      ? input.assignedInvestors
-      : input.investorId
-        ? [input.investorId]
-        : [];
+    if (!file && !input.fileUrl) throw ApiError.badRequest('file is required');
+    const assigned = parseAssignedInvestors(input);
 
     const doc = await this.reports.create(
       {
@@ -67,6 +108,7 @@ export class DocumentService {
       action: 'report.create',
       resource: 'report',
       resourceId: doc._id,
+      meta: { assignedInvestors: assigned, fileName: doc.fileName },
     });
     return mapReport(doc);
   }
@@ -77,38 +119,62 @@ export class DocumentService {
     for (const key of allowed) {
       if (input[key] !== undefined) update[key] = input[key];
     }
-    if (input.investorId) update.assignedInvestors = [input.investorId];
+    if (input.assignedInvestors !== undefined || input.investorId) {
+      update.assignedInvestors = parseAssignedInvestors(input);
+    }
     const doc = await this.reports.update(id, update, { actor: actorId });
     if (!doc) throw ApiError.notFound('Report not found');
+    await this.audit?.log({
+      actor: actorId,
+      action: 'report.update',
+      resource: 'report',
+      resourceId: id,
+    });
     return mapReport(doc);
   }
 
   async deleteReport(id: string, actorId?: string) {
     const doc = await this.reports.softDelete(id, actorId);
     if (!doc) throw ApiError.notFound('Report not found');
+    await this.audit?.log({
+      actor: actorId,
+      action: 'report.delete',
+      resource: 'report',
+      resourceId: id,
+    });
     return { success: true };
   }
 
   async getReport(id: string, investorScopeId?: string | null) {
     const doc = await this.reports.findById(id);
     if (!doc) throw ApiError.notFound('Report not found');
-    if (investorScopeId) {
-      const assigned = (doc.assignedInvestors || []).map(String);
-      if (assigned.length && !assigned.includes(String(investorScopeId))) {
-        throw ApiError.forbidden('Report not assigned to you');
-      }
-    }
+    assertAssigned(doc, investorScopeId, 'Report');
     return mapReport(doc);
+  }
+
+  async downloadReport(id: string, investorScopeId?: string | null, actorId?: string) {
+    const doc = await this.reports.findById(id);
+    if (!doc) throw ApiError.notFound('Report not found');
+    assertAssigned(doc, investorScopeId, 'Report');
+    const absolute = resolveUploadPath(doc.fileUrl);
+    if (!absolute) throw ApiError.notFound('File not found on server');
+    await this.audit?.log({
+      actor: actorId,
+      action: 'report.download',
+      resource: 'report',
+      resourceId: id,
+    });
+    return {
+      absolutePath: absolute,
+      fileName: doc.fileName || path.basename(absolute),
+      mimeType: doc.mimeType || 'application/octet-stream',
+    };
   }
 
   async listContracts(query: Record<string, any> = {}, investorScopeId?: string | null) {
     const filter: Record<string, unknown> = {};
     if (investorScopeId) {
-      filter.$or = [
-        { assignedInvestors: investorScopeId },
-        { assignedInvestors: { $size: 0 } },
-        { assignedInvestors: { $exists: false } },
-      ];
+      filter.assignedInvestors = investorScopeId;
     }
     if (query.type) filter.type = query.type;
     const result = await this.contracts.findMany(filter, {
@@ -124,11 +190,8 @@ export class DocumentService {
 
   async createContract(input: Record<string, any>, file: any, actorId?: string) {
     if (!input.title) throw ApiError.badRequest('title is required');
-    const assigned = Array.isArray(input.assignedInvestors)
-      ? input.assignedInvestors
-      : input.investorId
-        ? [input.investorId]
-        : [];
+    if (!file && !input.fileUrl) throw ApiError.badRequest('file is required');
+    const assigned = parseAssignedInvestors(input);
     const doc = await this.contracts.create(
       {
         title: input.title,
@@ -143,6 +206,13 @@ export class DocumentService {
       },
       { actor: actorId },
     );
+    await this.audit?.log({
+      actor: actorId,
+      action: 'contract.create',
+      resource: 'contract',
+      resourceId: doc._id,
+      meta: { assignedInvestors: assigned, fileName: doc.fileName },
+    });
     return mapContract(doc);
   }
 
@@ -152,28 +222,56 @@ export class DocumentService {
     for (const key of allowed) {
       if (input[key] !== undefined) update[key] = input[key];
     }
-    if (input.investorId) update.assignedInvestors = [input.investorId];
+    if (input.assignedInvestors !== undefined || input.investorId) {
+      update.assignedInvestors = parseAssignedInvestors(input);
+    }
     const doc = await this.contracts.update(id, update, { actor: actorId });
     if (!doc) throw ApiError.notFound('Contract not found');
+    await this.audit?.log({
+      actor: actorId,
+      action: 'contract.update',
+      resource: 'contract',
+      resourceId: id,
+    });
     return mapContract(doc);
   }
 
   async deleteContract(id: string, actorId?: string) {
     const doc = await this.contracts.softDelete(id, actorId);
     if (!doc) throw ApiError.notFound('Contract not found');
+    await this.audit?.log({
+      actor: actorId,
+      action: 'contract.delete',
+      resource: 'contract',
+      resourceId: id,
+    });
     return { success: true };
   }
 
   async getContract(id: string, investorScopeId?: string | null) {
     const doc = await this.contracts.findById(id);
     if (!doc) throw ApiError.notFound('Contract not found');
-    if (investorScopeId) {
-      const assigned = (doc.assignedInvestors || []).map(String);
-      if (assigned.length && !assigned.includes(String(investorScopeId))) {
-        throw ApiError.forbidden('Contract not assigned to you');
-      }
-    }
+    assertAssigned(doc, investorScopeId, 'Contract');
     return mapContract(doc);
+  }
+
+  async downloadContract(id: string, investorScopeId?: string | null, actorId?: string) {
+    const doc = await this.contracts.findById(id);
+    if (!doc) throw ApiError.notFound('Contract not found');
+    assertAssigned(doc, investorScopeId, 'Contract');
+    const absolute = resolveUploadPath(doc.fileUrl);
+    if (!absolute) throw ApiError.notFound('File not found on server');
+    await this.audit?.log({
+      actor: actorId,
+      action: 'contract.download',
+      resource: 'contract',
+      resourceId: id,
+    });
+    return {
+      absolutePath: absolute,
+      fileName: doc.fileName || path.basename(absolute),
+      mimeType: doc.mimeType || 'application/octet-stream',
+    };
   }
 }
 
@@ -204,11 +302,21 @@ export class DashboardService {
       (s: number, i: any) => s + (i.interestEarned || 0),
       0,
     );
-    const upcoming = payments.data.filter((p: any) => p.status === 'upcoming').length;
-    const overdue = payments.data.filter((p: any) => p.status === 'overdue').length;
-    const completed = payments.data.filter((p: any) => p.status === 'completed').length;
+    const principalRepaid = investments.data.reduce(
+      (s: number, i: any) => s + (i.principalRepaid || 0),
+      0,
+    );
+    const upcoming = payments.data.filter((p: any) => p.status === PAYMENT_STATUS.UPCOMING).length;
+    const overdue = payments.data.filter((p: any) => p.status === PAYMENT_STATUS.OVERDUE).length;
+    const completed = payments.data.filter(
+      (p: any) => p.status === PAYMENT_STATUS.COMPLETED,
+    ).length;
     const collectionRate =
       payments.data.length > 0 ? Math.round((completed / payments.data.length) * 1000) / 10 : 100;
+    const portfolioGrowth =
+      portfolioValue > 0
+        ? Math.round(((principalRepaid + interestEarned) / portfolioValue) * 1000) / 10
+        : 0;
 
     return {
       totalInvestors: investors.data.length,
@@ -216,10 +324,11 @@ export class DashboardService {
       portfolioValue,
       outstanding,
       interestEarned,
+      principalRepaid,
       upcomingPayments: upcoming,
       overduePayments: overdue,
       collectionRate,
-      portfolioGrowth: 0,
+      portfolioGrowth,
     };
   }
 
@@ -228,7 +337,8 @@ export class DashboardService {
       { investor: investorId },
       { limit: 20, page: 1, sort: '-createdAt', lean: true },
     );
-    const investment = invResult.data[0] ? mapInvestment(invResult.data[0]) : null;
+    const investments = invResult.data.map(mapInvestment);
+    const investment = investments[0] || null;
     let payments: any[] = [];
     let timeline: any[] = [];
     if (investment) {
@@ -240,7 +350,25 @@ export class DashboardService {
       );
       timeline = tl.data;
     }
-    return { investment, payments, timeline };
+
+    const nextPayment =
+      payments.find((p) => p.status === 'upcoming' || p.status === 'overdue') || null;
+    const stats = investment
+      ? {
+          investmentAmount: investment.principal,
+          outstandingBalance: investment.outstandingBalance,
+          principalRepaid: investment.principalRepaid,
+          interestEarned: investment.interestEarned,
+          nextPaymentDate: investment.nextPaymentDate || nextPayment?.dueDate || null,
+          nextPaymentAmount: investment.nextPaymentAmount || nextPayment?.total || 0,
+          maturityDate: investment.maturityDate,
+          status: investment.status,
+          repaymentCount: payments.filter((p) => p.status === 'completed').length,
+          overdueCount: payments.filter((p) => p.status === 'overdue').length,
+        }
+      : null;
+
+    return { investment, investments, payments, timeline, stats };
   }
 }
 
@@ -255,6 +383,7 @@ export class DomainExportService {
     investmentId: string,
     format: 'csv' | 'pdf' = 'csv',
     investorScopeId?: string | null,
+    actorId?: string,
   ) {
     const investment = await this.investments.findById(investmentId);
     if (!investment) throw ApiError.notFound('Investment not found');
@@ -264,37 +393,54 @@ export class DomainExportService {
 
     const investor = await this.investors.findById(String(investment.investor));
     const result = await this.payments.findByInvestment(investmentId);
-    const rows = result.data.map((p: any) => ({
-      'Due Date': mapPayment(p)?.dueDate,
-      'Payment Date': mapPayment(p)?.paymentDate || '',
-      Principal: mapPayment(p)?.principal,
-      Interest: mapPayment(p)?.interest,
-      'Total Payment': mapPayment(p)?.total,
-      Balance: mapPayment(p)?.remainingBalance,
-      Status: mapPayment(p)?.status,
+    const mappedPayments = result.data.map(mapPayment).filter(Boolean);
+    const rows = mappedPayments.map((p: any) => ({
+      'Due Date': p.dueDate,
+      'Payment Date': p.paymentDate || '',
+      Principal: p.principal,
+      Interest: p.interest,
+      'Total Payment': p.total,
+      Balance: p.remainingBalance,
+      Status: p.status,
     }));
 
+    const mappedInvestment = mapInvestment(investment);
+    let content: Buffer | string;
+    let mimeType: string;
+    let filename: string;
+
     if (format === 'pdf') {
-      const content = await exportToPdf(rows, {
-        title: `Payment Schedule — ${investor?.name || investment.investorName}`,
-        orientation: 'landscape',
+      content = await exportInvestmentStatementPdf({
+        investorName: investor?.name || investment.investorName || 'Investor',
+        investment: mappedInvestment,
+        payments: mappedPayments,
       });
-      return {
-        content,
-        mimeType: 'application/pdf',
-        filename: `payments-${investmentId}.pdf`,
-        encoding: 'buffer' as const,
-        meta: mapInvestment(investment),
-      };
+      mimeType = 'application/pdf';
+      filename = `statement-${investmentId}.pdf`;
+    } else {
+      content = exportToCsv(rows);
+      mimeType = 'text/csv';
+      filename = `payments-${investmentId}.csv`;
     }
 
-    const content = exportToCsv(rows);
+    if (actorId) {
+      await ExportHistory.create({
+        user: actorId,
+        investor: investment.investor,
+        investment: investment._id,
+        format,
+        type: 'payment_schedule',
+        filename,
+        meta: { rowCount: rows.length },
+      });
+    }
+
     return {
       content,
-      mimeType: 'text/csv',
-      filename: `payments-${investmentId}.csv`,
-      encoding: 'utf8' as const,
-      meta: mapInvestment(investment),
+      mimeType,
+      filename,
+      encoding: format === 'pdf' ? ('buffer' as const) : ('utf8' as const),
+      meta: mappedInvestment,
     };
   }
 }

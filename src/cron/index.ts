@@ -68,10 +68,52 @@ export async function cleanupSoftDeletedUsers(retentionDays = SOFT_DELETE_RETENT
     });
 
     const deleted = result.deletedCount || 0;
-    logger.info('Soft-deleted users purged', { deleted, retentionDays, cutoff: cutoff.toISOString() });
+    logger.info('Soft-deleted users purged', {
+      deleted,
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+    });
     return deleted;
   } catch (err) {
     logger.error('Soft-deleted user cleanup failed', { message: err.message, stack: err.stack });
+    return 0;
+  }
+}
+
+/**
+ * Flip due unpaid payments to overdue status.
+ * @returns {Promise<number>} modified count
+ */
+export async function markOverduePayments() {
+  if (mongoose.connection.readyState !== 1) {
+    logger.warn('Skipping overdue payment sweep — MongoDB not connected');
+    return 0;
+  }
+
+  try {
+    const Payment = mongoose.models.Payment;
+    if (!Payment) {
+      logger.warn('Payment model not registered — skipping overdue sweep');
+      return 0;
+    }
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const result = await Payment.updateMany(
+      {
+        dueDate: { $lt: today },
+        status: { $in: ['scheduled', 'upcoming', 'future'] },
+        isDeleted: { $ne: true },
+      },
+      { $set: { status: 'overdue' } },
+    );
+    const modified = result.modifiedCount || 0;
+    if (modified > 0) {
+      logger.info('Marked payments overdue', { modified });
+    }
+    return modified;
+  } catch (err) {
+    logger.error('Overdue payment sweep failed', { message: err.message, stack: err.stack });
     return 0;
   }
 }
@@ -101,6 +143,18 @@ export function startCronJobs() {
   );
   scheduledTasks.push(tokenTask);
 
+  // Every day at 01:00 UTC — overdue payments
+  const overdueTask = cron.schedule(
+    '0 1 * * *',
+    () => {
+      markOverduePayments().catch((err) => {
+        logger.error('Scheduled overdue sweep error', { message: err.message });
+      });
+    },
+    { timezone: 'UTC' },
+  );
+  scheduledTasks.push(overdueTask);
+
   // Every Sunday at 03:30 UTC — soft-deleted users
   const userTask = cron.schedule(
     '30 3 * * 0',
@@ -127,8 +181,18 @@ export function startCronJobs() {
   if (typeof heartbeat.unref === 'function') heartbeat.unref();
   intervals.push(heartbeat);
 
+  // Run overdue sweep once shortly after boot
+  setTimeout(() => {
+    markOverduePayments().catch(() => {});
+  }, 15_000);
+
   logger.info('Cron jobs registered', {
-    schedules: ['15 2 * * * (tokens)', '30 3 * * 0 (soft-deleted users)', '6h heartbeat'],
+    schedules: [
+      '0 1 * * * (overdue payments)',
+      '15 2 * * * (tokens)',
+      '30 3 * * 0 (soft-deleted users)',
+      '6h heartbeat',
+    ],
     softDeleteRetentionDays: SOFT_DELETE_RETENTION_DAYS,
   });
 
@@ -155,4 +219,5 @@ export default {
   stopCronJobs,
   cleanupExpiredTokens,
   cleanupSoftDeletedUsers,
+  markOverduePayments,
 };

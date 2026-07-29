@@ -91,6 +91,29 @@ export const markPaymentPaid = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, data, MESSAGES.UPDATED);
 });
 
+export const cancelPayment = asyncHandler(async (req, res) => {
+  const data = await container.investmentService.cancelPayment(
+    req.params.id,
+    req.body,
+    actorId(req),
+  );
+  return ApiResponse.ok(res, data, MESSAGES.UPDATED);
+});
+
+export const earlyRepayment = asyncHandler(async (req, res) => {
+  const data = await container.investmentService.earlyRepayment(
+    req.params.id,
+    req.body,
+    actorId(req),
+  );
+  return ApiResponse.ok(res, data, MESSAGES.UPDATED);
+});
+
+export const getLoan = asyncHandler(async (req, res) => {
+  const data = await container.investmentService.getLoanById(req.params.id, investorScope(req));
+  return ApiResponse.ok(res, data, MESSAGES.FETCHED);
+});
+
 // ---- Loans ----
 export const listLoans = asyncHandler(async (req, res) => {
   const result = await container.investmentService.listLoans(req.query, investorScope(req));
@@ -160,6 +183,17 @@ export const deleteReport = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, data, MESSAGES.DELETED);
 });
 
+export const downloadReport = asyncHandler(async (req, res) => {
+  const file = await container.documentService.downloadReport(
+    req.params.id,
+    investorScope(req),
+    actorId(req),
+  );
+  res.setHeader('Content-Type', file.mimeType);
+  res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+  return res.sendFile(file.absolutePath);
+});
+
 // ---- Contracts ----
 export const listContracts = asyncHandler(async (req, res) => {
   const result = await container.documentService.listContracts(req.query, investorScope(req));
@@ -190,6 +224,17 @@ export const deleteContract = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, data, MESSAGES.DELETED);
 });
 
+export const downloadContract = asyncHandler(async (req, res) => {
+  const file = await container.documentService.downloadContract(
+    req.params.id,
+    investorScope(req),
+    actorId(req),
+  );
+  res.setHeader('Content-Type', file.mimeType);
+  res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+  return res.sendFile(file.absolutePath);
+});
+
 // ---- Export ----
 export const exportPayments = asyncHandler(async (req, res) => {
   const format = (req.query.format === 'pdf' ? 'pdf' : 'csv') as 'csv' | 'pdf';
@@ -197,6 +242,7 @@ export const exportPayments = asyncHandler(async (req, res) => {
     req.params.investmentId,
     format,
     investorScope(req),
+    actorId(req),
   );
   res.setHeader('Content-Type', exported.mimeType);
   res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);

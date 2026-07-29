@@ -15,6 +15,7 @@ import type {
 } from '../repositories/domain.repositories.js';
 import type { AuditRepository } from '../repositories/audit.repository.js';
 import type { InvestorService } from './investor.service.js';
+import { emitDomainEvent } from '../sockets/emitter.js';
 
 function startOfDay(d = new Date()) {
   const x = new Date(d);
@@ -255,7 +256,22 @@ export class InvestmentService {
       };
     });
 
-    if (docs.length) await this.payments.model.insertMany(docs);
+    if (docs.length) {
+      await this.payments.model.insertMany(docs);
+      const first = docs.find((d) => d.status === PAYMENT_STATUS.UPCOMING) || docs[0];
+      if (first) {
+        await this.timeline.create({
+          type: TIMELINE_EVENT_TYPE.SCHEDULED_PAYMENT,
+          title: 'Payment Scheduled',
+          description: `Schedule generated (${docs.length} installments)`,
+          date: first.dueDate,
+          amount: first.total,
+          status: 'upcoming',
+          investor: investment.investor,
+          investment: investment._id,
+        });
+      }
+    }
     await this.refreshInvestmentPaymentMeta(investmentId);
     return this.listPayments(investmentId);
   }
@@ -277,18 +293,28 @@ export class InvestmentService {
     await this.payments.deleteUnpaidByInvestment(investmentId);
 
     const fromSequence = lastPaidSeq + 1;
-    const remainingTerm = investment.termMonths - lastPaidSeq;
-    if (remainingTerm <= 0 || remainingPrincipal <= 0) {
+    const remainingPrincipalNum = Number(remainingPrincipal) || 0;
+    if (remainingPrincipalNum <= 0) {
       await this.refreshInvestmentPaymentMeta(investmentId);
       return this.listPayments(investmentId);
     }
 
+    // Prefer original remaining term; if exhausted (e.g. early repayment), rebuild from remaining principal
+    let remainingTerm = Number(investment.termMonths) - lastPaidSeq;
+    if (remainingTerm <= 0) {
+      const monthly = Number(investment.monthlyPayment) || 0;
+      remainingTerm =
+        monthly > 0
+          ? Math.max(1, Math.ceil(remainingPrincipalNum / monthly))
+          : Math.max(1, Number(investment.termMonths) || 1);
+    }
+
     const rows = regenerateRemainingSchedule({
-      principal: remainingPrincipal,
-      remainingPrincipal,
+      principal: remainingPrincipalNum,
+      remainingPrincipal: remainingPrincipalNum,
       fromSequence,
       annualRatePercent: investment.interestRate,
-      termMonths: investment.termMonths,
+      termMonths: lastPaidSeq + remainingTerm,
       startDate: investment.startDate,
       paymentDay: investment.paymentDay,
       repaymentModel: investment.repaymentModel,
@@ -356,23 +382,48 @@ export class InvestmentService {
     if (payment.status === PAYMENT_STATUS.COMPLETED) {
       throw ApiError.badRequest('Payment already completed');
     }
+    if (payment.status === PAYMENT_STATUS.CANCELLED) {
+      throw ApiError.badRequest('Cancelled payments cannot be marked paid');
+    }
 
+    const previousPaid = Number(payment.amountPaid || 0);
     const amountPaid = Number(input.amountPaid ?? payment.total);
+    if (!(amountPaid > 0)) throw ApiError.badRequest('amountPaid must be greater than 0');
+
     const paymentDate = input.paymentDate ? new Date(input.paymentDate) : new Date();
-    let status = PAYMENT_STATUS.COMPLETED;
-    if (amountPaid > 0 && amountPaid < payment.total) status = PAYMENT_STATUS.PARTIALLY_PAID;
+    const fullyPaid = amountPaid >= Number(payment.total) - 0.009;
+    const status = fullyPaid ? PAYMENT_STATUS.COMPLETED : PAYMENT_STATUS.PARTIALLY_PAID;
+
+    // Allocate: interest first, then principal
+    const interestPortion = Math.min(Number(payment.interest), amountPaid);
+    const principalPortion = Math.max(
+      0,
+      Math.min(Number(payment.principal), amountPaid - interestPortion),
+    );
+    const priorInterest = Math.min(previousPaid, Number(payment.interest));
+    const priorPrincipal = Math.max(0, previousPaid - priorInterest);
+    const deltaInterest = Math.max(0, interestPortion - priorInterest);
+    const deltaPrincipal = Math.max(0, principalPortion - priorPrincipal);
 
     await this.payments.update(paymentId, {
       paymentDate,
       amountPaid,
       status,
+      notes: input.notes || payment.notes || '',
     });
 
     const investment = await this.investments.findById(payment.investment);
     if (investment) {
-      const principalRepaid = (investment.principalRepaid || 0) + (payment.principal || 0);
-      const interestEarned = (investment.interestEarned || 0) + (payment.interest || 0);
-      const outstandingBalance = payment.remainingBalance;
+      const principalRepaid = (investment.principalRepaid || 0) + deltaPrincipal;
+      const interestEarned = (investment.interestEarned || 0) + deltaInterest;
+      let outstandingBalance = Math.max(
+        0,
+        Number(investment.outstandingBalance || 0) - deltaPrincipal,
+      );
+      if (fullyPaid && payment.remainingBalance != null) {
+        outstandingBalance = Number(payment.remainingBalance);
+      }
+
       await this.investments.update(String(investment._id), {
         principalRepaid,
         interestEarned,
@@ -380,12 +431,27 @@ export class InvestmentService {
         status: outstandingBalance <= 0 ? INVESTMENT_STATUS.CLOSED : investment.status,
       });
       await this.investorService.syncTotals(String(investment.investor));
+
+      if (outstandingBalance <= 0) {
+        await this.timeline.create({
+          type: TIMELINE_EVENT_TYPE.LOAN_CLOSED,
+          title: 'Loan Fully Repaid',
+          description: 'Investment fully repaid',
+          date: paymentDate,
+          amount: amountPaid,
+          status: 'completed',
+          investor: payment.investor,
+          investment: payment.investment,
+        });
+      }
     }
 
     await this.timeline.create({
-      type: TIMELINE_EVENT_TYPE.COMPLETED_PAYMENT,
-      title: 'Payment Completed',
-      description: `Payment #${payment.sequence} completed`,
+      type: fullyPaid
+        ? TIMELINE_EVENT_TYPE.COMPLETED_PAYMENT
+        : TIMELINE_EVENT_TYPE.INTEREST_PAYMENT,
+      title: fullyPaid ? 'Payment Completed' : 'Partial Payment Received',
+      description: `Payment #${payment.sequence} ${fullyPaid ? 'completed' : 'partially paid'}`,
       date: paymentDate,
       amount: amountPaid,
       status: 'completed',
@@ -394,15 +460,142 @@ export class InvestmentService {
       payment: payment._id,
     });
 
-    await this.refreshInvestmentPaymentMeta(String(payment.investment));
+    if (!fullyPaid) {
+      await this.regenerateSchedule(String(payment.investment), actorId);
+    } else {
+      await this.refreshInvestmentPaymentMeta(String(payment.investment));
+    }
+
     await this.audit?.log({
       actor: actorId,
       action: 'payment.mark_paid',
       resource: 'payment',
       resourceId: paymentId,
+      meta: { amountPaid, status },
+    });
+
+    emitDomainEvent('payment', {
+      investorId: String(payment.investor),
+      investmentId: String(payment.investment),
+      paymentId,
+      status,
+      amountPaid,
+    });
+    emitDomainEvent('timeline', {
+      investorId: String(payment.investor),
+      investmentId: String(payment.investment),
+      type: fullyPaid ? 'completed_payment' : 'interest_payment',
     });
 
     return mapPayment(await this.payments.findById(paymentId));
+  }
+
+  async cancelPayment(paymentId: string, input: Record<string, any> = {}, actorId?: string) {
+    const payment = await this.payments.findById(paymentId);
+    if (!payment) throw ApiError.notFound('Payment not found');
+    if (payment.status === PAYMENT_STATUS.COMPLETED) {
+      throw ApiError.badRequest('Completed payments cannot be cancelled');
+    }
+    await this.payments.update(paymentId, {
+      status: PAYMENT_STATUS.CANCELLED,
+      notes: input.notes || payment.notes || 'Cancelled by administrator',
+    });
+    await this.refreshInvestmentPaymentMeta(String(payment.investment));
+    await this.audit?.log({
+      actor: actorId,
+      action: 'payment.cancel',
+      resource: 'payment',
+      resourceId: paymentId,
+    });
+    return mapPayment(await this.payments.findById(paymentId));
+  }
+
+  async earlyRepayment(investmentId: string, input: Record<string, any> = {}, actorId?: string) {
+    const investment = await this.investments.findById(investmentId);
+    if (!investment) throw ApiError.notFound('Investment not found');
+
+    const amount = Number(input.amount);
+    if (!(amount > 0)) throw ApiError.badRequest('amount must be greater than 0');
+
+    const paymentDate = input.paymentDate ? new Date(input.paymentDate) : new Date();
+    const outstanding = Number(investment.outstandingBalance || 0);
+    const applyAmount = Math.min(amount, outstanding);
+    if (applyAmount <= 0) throw ApiError.badRequest('Nothing left to repay');
+
+    // Clear unpaid rows first so early repayment sequences stay contiguous
+    await this.payments.deleteUnpaidByInvestment(investmentId);
+
+    const existing = await this.payments.findByInvestment(investmentId);
+    const lastSeq = existing.data.reduce((m: number, p: any) => Math.max(m, p.sequence || 0), 0);
+    const interestPortion = Math.min(Number(input.interestPortion || 0), applyAmount);
+    const principalPortion = Math.max(0, applyAmount - interestPortion);
+    const newOutstanding = Math.max(0, outstanding - principalPortion);
+
+    await this.payments.model.create({
+      investment: investment._id,
+      investor: investment.investor,
+      sequence: lastSeq + 1,
+      dueDate: paymentDate,
+      paymentDate,
+      principal: principalPortion,
+      interest: interestPortion,
+      total: applyAmount,
+      remainingBalance: newOutstanding,
+      amountPaid: applyAmount,
+      status: PAYMENT_STATUS.COMPLETED,
+      notes: input.notes || 'Early repayment',
+    });
+
+    await this.investments.update(investmentId, {
+      outstandingBalance: newOutstanding,
+      principalRepaid: (investment.principalRepaid || 0) + principalPortion,
+      interestEarned: (investment.interestEarned || 0) + interestPortion,
+      status: newOutstanding <= 0 ? INVESTMENT_STATUS.CLOSED : investment.status,
+    });
+
+    await this.timeline.create({
+      type:
+        newOutstanding <= 0
+          ? TIMELINE_EVENT_TYPE.LOAN_CLOSED
+          : TIMELINE_EVENT_TYPE.COMPLETED_PAYMENT,
+      title: newOutstanding <= 0 ? 'Loan Fully Repaid' : 'Early Repayment',
+      description: `Early repayment of ${applyAmount}`,
+      date: paymentDate,
+      amount: applyAmount,
+      status: 'completed',
+      investor: investment.investor,
+      investment: investment._id,
+    });
+
+    if (newOutstanding > 0) {
+      await this.regenerateSchedule(investmentId, actorId);
+    } else {
+      await this.payments.deleteUnpaidByInvestment(investmentId);
+      await this.refreshInvestmentPaymentMeta(investmentId);
+    }
+
+    await this.investorService.syncTotals(String(investment.investor));
+    await this.audit?.log({
+      actor: actorId,
+      action: 'payment.early_repayment',
+      resource: 'investment',
+      resourceId: investmentId,
+      meta: { amount: applyAmount },
+    });
+
+    emitDomainEvent('payment', {
+      investorId: String(investment.investor),
+      investmentId,
+      amount: applyAmount,
+      type: 'early_repayment',
+    });
+    emitDomainEvent('timeline', {
+      investorId: String(investment.investor),
+      investmentId,
+      type: newOutstanding <= 0 ? 'loan_closed' : 'completed_payment',
+    });
+
+    return this.getById(investmentId);
   }
 
   async markOverdue(investmentId?: string) {
@@ -480,7 +673,32 @@ export class InvestmentService {
       },
       { actor: actorId },
     );
+    await this.timeline.create({
+      type: TIMELINE_EVENT_TYPE.LOAN_FUNDED,
+      title: 'Loan Funded',
+      description: `Loan funded for ${input.borrower}`,
+      date: loan.fundedAt || new Date(),
+      amount: loan.amount,
+      status: 'completed',
+      investor: investment.investor,
+      investment: investment._id,
+    });
+    await this.audit?.log({
+      actor: actorId,
+      action: 'loan.create',
+      resource: 'loan',
+      resourceId: loan._id,
+    });
     return mapLoan(loan);
+  }
+
+  async getLoanById(id: string, investorScopeId?: string | null) {
+    const doc = await this.loans.findById(id);
+    if (!doc) throw ApiError.notFound('Loan not found');
+    if (investorScopeId && String(doc.investor) !== String(investorScopeId)) {
+      throw ApiError.forbidden('You can only access your own loans');
+    }
+    return mapLoan(doc);
   }
 
   async updateLoan(id: string, input: Record<string, any>, actorId?: string) {

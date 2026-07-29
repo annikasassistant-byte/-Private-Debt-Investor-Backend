@@ -44,12 +44,31 @@ export const updateInvestmentValidator = [
   body('termMonths').optional().isInt({ min: 1 }),
   body('status').optional().isIn(['pending', 'active', 'matured', 'closed']),
   body('paymentDay').optional().isInt({ min: 1, max: 28 }),
+  body('repaymentModel').optional().isIn(['amortizing', 'interest_only', 'bullet']),
+  body('gracePeriodMonths').optional().isInt({ min: 0 }),
+  body('balloonAmount').optional().isFloat({ min: 0 }),
+  body('startDate').optional().isISO8601(),
+  body('notes').optional().isString().isLength({ max: 2000 }),
 ];
 
 export const markPaidValidator = [
   param('id').isMongoId(),
   body('paymentDate').optional().isISO8601(),
   body('amountPaid').optional().isFloat({ gt: 0 }),
+  body('notes').optional().isString().isLength({ max: 1000 }),
+];
+
+export const cancelPaymentValidator = [
+  param('id').isMongoId(),
+  body('notes').optional().isString().isLength({ max: 1000 }),
+];
+
+export const earlyRepaymentValidator = [
+  param('id').isMongoId(),
+  body('amount').isFloat({ gt: 0 }),
+  body('interestPortion').optional().isFloat({ min: 0 }),
+  body('paymentDate').optional().isISO8601(),
+  body('notes').optional().isString().isLength({ max: 1000 }),
 ];
 
 export const createLoanValidator = [
@@ -57,6 +76,52 @@ export const createLoanValidator = [
   body('borrower').trim().notEmpty().isLength({ max: 200 }),
   body('amount').optional().isFloat({ gt: 0 }),
   body('rate').optional().isFloat({ min: 0 }),
+  body('fundedAt').optional().isISO8601(),
+  body('notes').optional().isString().isLength({ max: 1000 }),
+];
+
+export const updateLoanValidator = [
+  param('id').isMongoId(),
+  body('borrower').optional().trim().notEmpty().isLength({ max: 200 }),
+  body('amount').optional().isFloat({ gt: 0 }),
+  body('rate').optional().isFloat({ min: 0 }),
+  body('status').optional().isIn(['pending', 'active', 'matured', 'closed']),
+  body('fundedAt').optional().isISO8601(),
+  body('notes').optional().isString().isLength({ max: 1000 }),
+];
+
+export const createReportValidator = [
+  body('title').trim().notEmpty().isLength({ max: 300 }),
+  body('category').optional().isIn(['monthly', 'quarterly', 'annual', 'kpi', 'other']),
+  body('period').optional().isString().isLength({ max: 100 }),
+  body('investorId').optional().isMongoId(),
+  body('assignedInvestors').optional(),
+];
+
+export const updateReportValidator = [
+  param('id').isMongoId(),
+  body('title').optional().trim().notEmpty().isLength({ max: 300 }),
+  body('category').optional().isIn(['monthly', 'quarterly', 'annual', 'kpi', 'other']),
+  body('period').optional().isString().isLength({ max: 100 }),
+  body('investorId').optional().isMongoId(),
+  body('assignedInvestors').optional(),
+];
+
+export const createContractValidator = [
+  body('title').trim().notEmpty().isLength({ max: 300 }),
+  body('type').optional().isIn(['loan_agreement', 'subordinated_loan', 'amendment', 'additional']),
+  body('investorId').optional().isMongoId(),
+  body('assignedInvestors').optional(),
+  body('signedAt').optional().isISO8601(),
+];
+
+export const updateContractValidator = [
+  param('id').isMongoId(),
+  body('title').optional().trim().notEmpty().isLength({ max: 300 }),
+  body('type').optional().isIn(['loan_agreement', 'subordinated_loan', 'amendment', 'additional']),
+  body('investorId').optional().isMongoId(),
+  body('assignedInvestors').optional(),
+  body('signedAt').optional().isISO8601(),
 ];
 
 export const idParam = [param('id').isMongoId()];

@@ -5,6 +5,18 @@ export const updateProfileValidator = [
   body('lastName').optional().trim().notEmpty().isLength({ max: 100 }),
   body('phone').optional({ nullable: true }).isString().isLength({ max: 32 }),
   body('avatar').optional({ nullable: true }).isString().isLength({ max: 2048 }),
+  body('notificationPreferences').optional().isObject(),
+  body('notificationPreferences.paymentConfirmations').optional().isBoolean(),
+  body('notificationPreferences.upcomingDueDates').optional().isBoolean(),
+  body('notificationPreferences.newReports').optional().isBoolean(),
+  body('notificationPreferences.platformAnnouncements').optional().isBoolean(),
+];
+
+export const notificationPreferencesValidator = [
+  body('paymentConfirmations').optional().isBoolean(),
+  body('upcomingDueDates').optional().isBoolean(),
+  body('newReports').optional().isBoolean(),
+  body('platformAnnouncements').optional().isBoolean(),
 ];
 
 export const listUsersValidator = [
@@ -33,9 +45,7 @@ export const updateUserValidator = [
   body('permissions.*').optional().isMongoId(),
 ];
 
-export const userIdParamValidator = [
-  param('id').isMongoId().withMessage('Invalid user id'),
-];
+export const userIdParamValidator = [param('id').isMongoId().withMessage('Invalid user id')];
 
 export const exportUsersValidator = [
   query('format').optional().isIn(['csv', 'excel', 'xlsx', 'pdf']),
@@ -45,6 +55,7 @@ export const exportUsersValidator = [
 
 export default {
   updateProfileValidator,
+  notificationPreferencesValidator,
   listUsersValidator,
   updateUserValidator,
   userIdParamValidator,
