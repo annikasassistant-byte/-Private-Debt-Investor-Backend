@@ -263,20 +263,8 @@ export class InvestmentService {
     });
 
     if (docs.length) {
-      await this.payments.model.insertMany(docs);
-      const first = docs.find((d) => d.status === PAYMENT_STATUS.UPCOMING) || docs[0];
-      if (first) {
-        await this.timeline.create({
-          type: TIMELINE_EVENT_TYPE.SCHEDULED_PAYMENT,
-          title: 'Payment Scheduled',
-          description: `Schedule generated (${docs.length} installments)`,
-          date: first.dueDate,
-          amount: first.total,
-          status: 'upcoming',
-          investor: investment.investor,
-          investment: investment._id,
-        });
-      }
+      const inserted = await this.payments.model.insertMany(docs);
+      await this.syncScheduleTimelineEvents(investment, inserted);
     }
     await this.refreshInvestmentPaymentMeta(investmentId);
     return this.listPayments(investmentId);
@@ -354,9 +342,74 @@ export class InvestmentService {
       };
     });
 
-    if (docs.length) await this.payments.model.insertMany(docs);
+    if (docs.length) {
+      const inserted = await this.payments.model.insertMany(docs);
+      await this.syncScheduleTimelineEvents(investment, inserted);
+    }
     await this.refreshInvestmentPaymentMeta(investmentId);
     return this.listPayments(investmentId);
+  }
+
+  /**
+   * Create timeline rows for each unpaid installment (scheduled / next / overdue).
+   * Replaces prior schedule-derived timeline events for the investment.
+   */
+  private async syncScheduleTimelineEvents(investment: any, payments: any[]) {
+    await this.timeline.model.deleteMany({
+      investment: investment._id,
+      type: {
+        $in: [
+          TIMELINE_EVENT_TYPE.SCHEDULED_PAYMENT,
+          TIMELINE_EVENT_TYPE.UPCOMING_PAYMENT,
+          TIMELINE_EVENT_TYPE.OVERDUE_PAYMENT,
+        ],
+      },
+    });
+
+    const events = payments
+      .filter(
+        (p) =>
+          ![
+            PAYMENT_STATUS.COMPLETED,
+            PAYMENT_STATUS.PARTIALLY_PAID,
+            PAYMENT_STATUS.CANCELLED,
+          ].includes(p.status),
+      )
+      .map((p) => {
+        let type: string = TIMELINE_EVENT_TYPE.SCHEDULED_PAYMENT;
+        let status: 'upcoming' | 'future' | 'overdue' = 'future';
+        let title = `Installment #${p.sequence}`;
+
+        if (p.status === PAYMENT_STATUS.UPCOMING) {
+          type = TIMELINE_EVENT_TYPE.UPCOMING_PAYMENT;
+          status = 'upcoming';
+          title = 'Next Payment Due';
+        } else if (p.status === PAYMENT_STATUS.OVERDUE) {
+          type = TIMELINE_EVENT_TYPE.OVERDUE_PAYMENT;
+          status = 'overdue';
+          title = `Overdue · Installment #${p.sequence}`;
+        } else if (p.status === PAYMENT_STATUS.SCHEDULED) {
+          status = 'upcoming';
+          title = `Scheduled · Installment #${p.sequence}`;
+        }
+
+        const note = p.dateAdjustmentNote ? ` ${p.dateAdjustmentNote}` : '';
+        return {
+          type,
+          title,
+          description: `Principal ${p.principal} · Interest ${p.interest}.${note}`,
+          date: p.dueDate,
+          amount: p.total,
+          status,
+          investor: investment.investor,
+          investment: investment._id,
+          payment: p._id,
+        };
+      });
+
+    if (events.length) {
+      await this.timeline.model.insertMany(events);
+    }
   }
 
   async listPayments(investmentId: string, investorScopeId?: string | null) {

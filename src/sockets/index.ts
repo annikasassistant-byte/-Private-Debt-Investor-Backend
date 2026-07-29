@@ -28,11 +28,19 @@ export async function initSocketIo(httpServer, options = {}) {
 
     io.use(async (socket, next) => {
       try {
+        const cookieHeader = socket.handshake.headers?.cookie || '';
+        const accessCookieName = env.ACCESS_COOKIE_NAME || 'access_token';
+        const cookieToken = String(cookieHeader)
+          .split(';')
+          .map((p) => p.trim())
+          .find((p) => p.startsWith(`${accessCookieName}=`))
+          ?.slice(accessCookieName.length + 1);
         const token =
           socket.handshake.auth?.token ||
           (typeof socket.handshake.headers?.authorization === 'string'
             ? socket.handshake.headers.authorization.replace(/^Bearer\s+/i, '')
-            : null);
+            : null) ||
+          (cookieToken ? decodeURIComponent(cookieToken) : null);
         if (!token) return next(new Error('Unauthorized'));
         const payload = verifyAccessToken(token);
         const userId = payload.sub || payload.userId;

@@ -284,51 +284,58 @@ export class DashboardService {
   ) {}
 
   async adminStats() {
-    const [investors, investments, payments] = await Promise.all([
-      this.investors.findMany({ status: 'active' }, { limit: 500, page: 1, lean: true }),
-      this.investments.findMany({}, { limit: 500, page: 1, lean: true }),
-      this.payments.findMany({}, { limit: 1000, page: 1, lean: true }),
+    const soft = { isDeleted: { $ne: true } };
+    const [totalInvestors, totalInvestments, invAgg, payAgg] = await Promise.all([
+      this.investors.model.countDocuments({ status: 'active', ...soft }),
+      this.investments.model.countDocuments(soft),
+      this.investments.model.aggregate([
+        { $match: soft },
+        {
+          $group: {
+            _id: null,
+            portfolioValue: { $sum: { $ifNull: ['$principal', 0] } },
+            outstanding: { $sum: { $ifNull: ['$outstandingBalance', 0] } },
+            interestEarned: { $sum: { $ifNull: ['$interestEarned', 0] } },
+            principalRepaid: { $sum: { $ifNull: ['$principalRepaid', 0] } },
+          },
+        },
+      ]),
+      this.payments.model.aggregate([
+        { $match: soft },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
     ]);
 
-    const portfolioValue = investments.data.reduce(
-      (s: number, i: any) => s + (i.principal || 0),
-      0,
-    );
-    const outstanding = investments.data.reduce(
-      (s: number, i: any) => s + (i.outstandingBalance || 0),
-      0,
-    );
-    const interestEarned = investments.data.reduce(
-      (s: number, i: any) => s + (i.interestEarned || 0),
-      0,
-    );
-    const principalRepaid = investments.data.reduce(
-      (s: number, i: any) => s + (i.principalRepaid || 0),
-      0,
-    );
-    const upcoming = payments.data.filter((p: any) => p.status === PAYMENT_STATUS.UPCOMING).length;
-    const overdue = payments.data.filter((p: any) => p.status === PAYMENT_STATUS.OVERDUE).length;
-    const completed = payments.data.filter(
-      (p: any) => p.status === PAYMENT_STATUS.COMPLETED,
-    ).length;
+    const inv = invAgg[0] || {
+      portfolioValue: 0,
+      outstanding: 0,
+      interestEarned: 0,
+      principalRepaid: 0,
+    };
+    const byStatus = Object.fromEntries(payAgg.map((r: any) => [r._id, r.count]));
+    const upcoming = byStatus[PAYMENT_STATUS.UPCOMING] || 0;
+    const overdue = byStatus[PAYMENT_STATUS.OVERDUE] || 0;
+    const completed = byStatus[PAYMENT_STATUS.COMPLETED] || 0;
+    const paymentTotal = payAgg.reduce((s: number, r: any) => s + (r.count || 0), 0);
     const collectionRate =
-      payments.data.length > 0 ? Math.round((completed / payments.data.length) * 1000) / 10 : 100;
-    const portfolioGrowth =
-      portfolioValue > 0
-        ? Math.round(((principalRepaid + interestEarned) / portfolioValue) * 1000) / 10
+      paymentTotal > 0 ? Math.round((completed / paymentTotal) * 1000) / 10 : 100;
+    const repaidShare =
+      inv.portfolioValue > 0
+        ? Math.round(((inv.principalRepaid + inv.interestEarned) / inv.portfolioValue) * 1000) / 10
         : 0;
 
     return {
-      totalInvestors: investors.data.length,
-      totalInvestments: investments.data.length,
-      portfolioValue,
-      outstanding,
-      interestEarned,
-      principalRepaid,
+      totalInvestors,
+      totalInvestments,
+      portfolioValue: inv.portfolioValue,
+      outstanding: inv.outstanding,
+      interestEarned: inv.interestEarned,
+      principalRepaid: inv.principalRepaid,
       upcomingPayments: upcoming,
       overduePayments: overdue,
       collectionRate,
-      portfolioGrowth,
+      portfolioGrowth: repaidShare,
+      repaidSharePercent: repaidShare,
     };
   }
 
@@ -345,7 +352,7 @@ export class DashboardService {
       const pay = await this.investmentService.listPayments(investment.id, investorId);
       payments = pay.data;
       const tl = await this.investmentService.listTimeline(
-        { investmentId: investment.id, limit: 20 },
+        { investmentId: investment.id, limit: 100 },
         investorId,
       );
       timeline = tl.data;
