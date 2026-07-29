@@ -1,39 +1,36 @@
-import mongoose from 'mongoose';
+import mongoose, { type ClientSession, type Model, type Types } from 'mongoose';
 import { ApiError } from '../utils/ApiError.js';
+import type { PaginatedResult, RepositoryOptions } from '../types/common.js';
+
+type Id = string | Types.ObjectId;
 
 /**
  * Generic MongoDB repository with CRUD, soft delete, pagination, and transactions.
  */
-export class BaseRepository {
-  /**
-   * @param {import('mongoose').Model} model
-   * @param {string} [resourceName]
-   */
-  constructor(model, resourceName = 'Resource') {
+export class BaseRepository<T = any> {
+  protected model: Model<T>;
+  protected resourceName: string;
+
+  constructor(model: Model<T>, resourceName = 'Resource') {
     if (!model) throw new Error('BaseRepository requires a Mongoose model');
     this.model = model;
     this.resourceName = resourceName;
   }
 
-  /**
-   * @param {object} data
-   * @param {{ session?: import('mongoose').ClientSession, actor?: string }} [options]
-   */
-  async create(data, options = {}) {
+  async create(
+    data: Partial<T> | Record<string, unknown>,
+    options: { session?: ClientSession; actor?: string | null } = {},
+  ) {
     const { session, actor } = options;
-    const doc = new this.model(data);
-    if (actor) doc.$locals = { ...(doc.$locals || {}), actor };
+    const doc = new this.model(data as any);
+    if (actor) (doc as any).$locals = { ...((doc as any).$locals || {}), actor };
     return doc.save({ session });
   }
 
-  /**
-   * @param {string|import('mongoose').Types.ObjectId} id
-   * @param {{ populate?: string|object|Array, select?: string, includeDeleted?: boolean, lean?: boolean }} [options]
-   */
-  async findById(id, options = {}) {
+  async findById(id: Id, options: RepositoryOptions = {}): Promise<any> {
     if (!mongoose.isValidObjectId(id)) return null;
 
-    let query = this.model.findById(id);
+    let query: any = this.model.findById(id);
     if (options.select) query = query.select(options.select);
     if (options.populate) query = query.populate(options.populate);
     if (options.includeDeleted) query = query.setOptions({ includeDeleted: true });
@@ -41,12 +38,8 @@ export class BaseRepository {
     return query.exec();
   }
 
-  /**
-   * @param {object} filter
-   * @param {{ populate?: string|object|Array, select?: string, includeDeleted?: boolean, lean?: boolean, sort?: object }} [options]
-   */
-  async findOne(filter = {}, options = {}) {
-    let query = this.model.findOne(filter);
+  async findOne(filter: Record<string, unknown> = {}, options: RepositoryOptions = {}): Promise<any> {
+    let query: any = this.model.findOne(filter as any);
     if (options.select) query = query.select(options.select);
     if (options.populate) query = query.populate(options.populate);
     if (options.sort) query = query.sort(options.sort);
@@ -55,34 +48,22 @@ export class BaseRepository {
     return query.exec();
   }
 
-  /**
-   * Paginated list with filter/sort.
-   * @param {object} [filter={}]
-   * @param {{
-   *   page?: number,
-   *   limit?: number,
-   *   sort?: string|object,
-   *   populate?: string|object|Array,
-   *   select?: string,
-   *   includeDeleted?: boolean,
-   *   lean?: boolean,
-   *   search?: string,
-   *   searchFields?: string[],
-   * }} [options]
-   */
-  async findMany(filter = {}, options = {}) {
+  async findMany(
+    filter: Record<string, unknown> = {},
+    options: RepositoryOptions = {},
+  ): Promise<PaginatedResult<any>> {
     const page = Math.max(1, Number(options.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
     const skip = (page - 1) * limit;
 
-    const queryFilter = { ...filter };
+    const queryFilter: Record<string, unknown> = { ...filter };
 
     if (options.search && options.searchFields?.length) {
       const regex = new RegExp(escapeRegex(options.search), 'i');
       queryFilter.$or = options.searchFields.map((field) => ({ [field]: regex }));
     }
 
-    let query = this.model.find(queryFilter);
+    let query: any = this.model.find(queryFilter as any);
     if (options.select) query = query.select(options.select);
     if (options.populate) query = query.populate(options.populate);
     if (options.includeDeleted) query = query.setOptions({ includeDeleted: true });
@@ -93,7 +74,7 @@ export class BaseRepository {
 
     const [data, total] = await Promise.all([
       query.exec(),
-      this.model.countDocuments(queryFilter).setOptions(
+      this.model.countDocuments(queryFilter as any).setOptions(
         options.includeDeleted ? { includeDeleted: true } : {},
       ),
     ]);
@@ -105,18 +86,13 @@ export class BaseRepository {
         limit,
         total,
         totalPages: Math.ceil(total / limit) || 0,
-        hasNextPage: page * limit < total,
-        hasPrevPage: page > 1,
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
       },
     };
   }
 
-  /**
-   * @param {string|import('mongoose').Types.ObjectId} id
-   * @param {object} update
-   * @param {{ session?: import('mongoose').ClientSession, actor?: string, includeDeleted?: boolean, runValidators?: boolean, select?: string, populate?: any }} [options]
-   */
-  async update(id, update, options = {}) {
+  async update(id: Id, update: Record<string, unknown>, options: RepositoryOptions = {}): Promise<any> {
     if (!mongoose.isValidObjectId(id)) {
       throw ApiError.badRequest(`Invalid ${this.resourceName} id`);
     }
@@ -125,21 +101,21 @@ export class BaseRepository {
       session,
       actor,
       includeDeleted = false,
-      runValidators = true,
       select,
       populate,
     } = options;
+    const runValidators = true;
 
-    let query = this.model.findOneAndUpdate(
-      { _id: id },
-      { $set: update },
+    let query: any = this.model.findOneAndUpdate(
+      { _id: id } as any,
+      { $set: update } as any,
       {
         new: true,
         runValidators,
         session,
         actor,
         includeDeleted,
-      },
+      } as any,
     );
 
     if (select) query = query.select(select);
@@ -147,15 +123,12 @@ export class BaseRepository {
     return query.exec();
   }
 
-  /**
-   * Soft-delete by id (requires soft-delete plugin on model).
-   */
-  async softDelete(id, deletedBy = null) {
+  async softDelete(id: Id, deletedBy: Id | null = null) {
     if (!mongoose.isValidObjectId(id)) {
       throw ApiError.badRequest(`Invalid ${this.resourceName} id`);
     }
-    if (typeof this.model.softDeleteById === 'function') {
-      return this.model.softDeleteById(id, deletedBy);
+    if (typeof (this.model as any).softDeleteById === 'function') {
+      return (this.model as any).softDeleteById(id, deletedBy);
     }
     return this.update(id, {
       isDeleted: true,
@@ -164,35 +137,26 @@ export class BaseRepository {
     });
   }
 
-  /**
-   * Permanent delete.
-   */
-  async hardDelete(id, options = {}) {
+  async hardDelete(id: Id, options: { session?: ClientSession } = {}) {
     if (!mongoose.isValidObjectId(id)) {
       throw ApiError.badRequest(`Invalid ${this.resourceName} id`);
     }
     return this.model.findByIdAndDelete(id, { session: options.session }).exec();
   }
 
-  async count(filter = {}, options = {}) {
-    let query = this.model.countDocuments(filter);
+  async count(filter: Record<string, unknown> = {}, options: RepositoryOptions = {}) {
+    let query = this.model.countDocuments(filter as any);
     if (options.includeDeleted) query = query.setOptions({ includeDeleted: true });
     return query.exec();
   }
 
-  async aggregate(pipeline = [], options = {}) {
-    const agg = this.model.aggregate(pipeline);
+  async aggregate(pipeline: Record<string, unknown>[] = [], options: { session?: ClientSession } = {}) {
+    const agg = this.model.aggregate(pipeline as any);
     if (options.session) agg.session(options.session);
     return agg.exec();
   }
 
-  /**
-   * Run work inside a MongoDB transaction.
-   * @template T
-   * @param {(session: import('mongoose').ClientSession) => Promise<T>} work
-   * @returns {Promise<T>}
-   */
-  async withTransaction(work) {
+  async withTransaction<R>(work: (session: ClientSession) => Promise<R>): Promise<R> {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
@@ -207,25 +171,21 @@ export class BaseRepository {
     }
   }
 
-  async exists(filter = {}) {
-    const doc = await this.model.exists(filter);
+  async exists(filter: Record<string, unknown> = {}): Promise<boolean> {
+    const doc = await this.model.exists(filter as any);
     return Boolean(doc);
   }
 }
 
-function escapeRegex(str) {
+function escapeRegex(str: string): string {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * @param {string|object} [sort]
- * @returns {object}
- */
-function parseSort(sort) {
+function parseSort(sort?: string | Record<string, 1 | -1>): Record<string, 1 | -1> {
   if (!sort) return { createdAt: -1 };
   if (typeof sort === 'object') return sort;
 
-  const result = {};
+  const result: Record<string, 1 | -1> = {};
   String(sort)
     .split(',')
     .map((s) => s.trim())

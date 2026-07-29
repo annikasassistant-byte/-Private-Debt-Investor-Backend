@@ -1,10 +1,19 @@
+import type { Schema } from 'mongoose';
+import type mongooseNS from 'mongoose';
+
+export type BaseModelOptions = {
+  softDelete?: boolean;
+  audit?: boolean;
+};
+
 /**
  * Apply reusable soft-delete, audit, timestamps, and optimistic concurrency.
- * @param {import('mongoose').Schema} schema
- * @param {typeof import('mongoose')} mongoose
- * @param {{ softDelete?: boolean, audit?: boolean }} [options]
  */
-export function applyBaseModel(schema, mongoose, options = {}) {
+export function applyBaseModel(
+  schema: Schema,
+  mongoose: typeof mongooseNS,
+  options: BaseModelOptions = {},
+): Schema {
   const { softDelete = true, audit = true } = options;
   const { Schema } = mongoose;
 
@@ -122,7 +131,11 @@ export function applyBaseModel(schema, mongoose, options = {}) {
 }
 
 /** Alias for applyBaseModel for callers expecting a plugin-style name. */
-export function baseModelPlugin(schema, mongoose, options = {}) {
+export function baseModelPlugin(
+  schema: Schema,
+  mongoose: typeof mongooseNS,
+  options: BaseModelOptions = {},
+): Schema {
   return applyBaseModel(schema, mongoose, options);
 }
 

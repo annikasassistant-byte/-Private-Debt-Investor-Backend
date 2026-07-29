@@ -1,10 +1,8 @@
+import type { Redis } from 'ioredis';
 import { getRedisClient, isRedisReady } from '../config/redis.js';
 import logger from '../config/logger.js';
 
-/**
- * @returns {import('ioredis').default | null}
- */
-function clientOrNull() {
+function clientOrNull(): Redis | null {
   try {
     const client = getRedisClient();
     if (!client || !isRedisReady()) return null;
@@ -16,10 +14,8 @@ function clientOrNull() {
 
 /**
  * Get a value from Redis (JSON-parsed when possible).
- * @param {string} key
- * @returns {Promise<unknown|null>}
  */
-export async function redisGet(key) {
+export async function redisGet(key: string): Promise<unknown | null> {
   const client = clientOrNull();
   if (!client) return null;
 
@@ -31,20 +27,21 @@ export async function redisGet(key) {
     } catch {
       return value;
     }
-  } catch (error) {
-    logger.debug('redisGet failed', { key, message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug('redisGet failed', { key, message });
     return null;
   }
 }
 
 /**
  * Set a value in Redis with optional TTL (seconds).
- * @param {string} key
- * @param {unknown} value
- * @param {number} [ttlSeconds]
- * @returns {Promise<'OK'|null>}
  */
-export async function redisSet(key, value, ttlSeconds) {
+export async function redisSet(
+  key: string,
+  value: unknown,
+  ttlSeconds?: number,
+): Promise<'OK' | null> {
   const client = clientOrNull();
   if (!client) return null;
 
@@ -54,20 +51,21 @@ export async function redisSet(key, value, ttlSeconds) {
       return client.set(key, serialized, 'EX', ttlSeconds);
     }
     return client.set(key, serialized);
-  } catch (error) {
-    logger.debug('redisSet failed', { key, message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug('redisSet failed', { key, message });
     return null;
   }
 }
 
 /**
  * Set only if key does not exist (NX) with TTL.
- * @param {string} key
- * @param {unknown} value
- * @param {number} ttlSeconds
- * @returns {Promise<boolean>}
  */
-export async function redisSetNx(key, value, ttlSeconds) {
+export async function redisSetNx(
+  key: string,
+  value: unknown,
+  ttlSeconds: number,
+): Promise<boolean> {
   const client = clientOrNull();
   if (!client) return false;
 
@@ -75,36 +73,34 @@ export async function redisSetNx(key, value, ttlSeconds) {
     const serialized = typeof value === 'string' ? value : JSON.stringify(value);
     const result = await client.set(key, serialized, 'EX', ttlSeconds, 'NX');
     return result === 'OK';
-  } catch (error) {
-    logger.debug('redisSetNx failed', { key, message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug('redisSetNx failed', { key, message });
     return false;
   }
 }
 
 /**
  * Delete one or more keys.
- * @param {...string} keys
- * @returns {Promise<number>}
  */
-export async function redisDel(...keys) {
+export async function redisDel(...keys: string[]): Promise<number> {
   if (!keys.length) return 0;
   const client = clientOrNull();
   if (!client) return 0;
 
   try {
     return await client.del(...keys);
-  } catch (error) {
-    logger.debug('redisDel failed', { message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug('redisDel failed', { message });
     return 0;
   }
 }
 
 /**
  * Get remaining TTL in seconds (-1 no expiry, -2 missing).
- * @param {string} key
- * @returns {Promise<number>}
  */
-export async function redisTtl(key) {
+export async function redisTtl(key: string): Promise<number> {
   const client = clientOrNull();
   if (!client) return -2;
 
@@ -117,10 +113,8 @@ export async function redisTtl(key) {
 
 /**
  * Check whether a key exists.
- * @param {string} key
- * @returns {Promise<boolean>}
  */
-export async function redisExists(key) {
+export async function redisExists(key: string): Promise<boolean> {
   const client = clientOrNull();
   if (!client) return false;
 
@@ -134,11 +128,8 @@ export async function redisExists(key) {
 
 /**
  * Increment a counter; optionally set TTL on first increment.
- * @param {string} key
- * @param {number} [ttlSeconds]
- * @returns {Promise<number>}
  */
-export async function redisIncr(key, ttlSeconds) {
+export async function redisIncr(key: string, ttlSeconds?: number): Promise<number> {
   const client = clientOrNull();
   if (!client) return 0;
 
@@ -148,22 +139,23 @@ export async function redisIncr(key, ttlSeconds) {
       await client.expire(key, ttlSeconds);
     }
     return value;
-  } catch (error) {
-    logger.debug('redisIncr failed', { key, message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug('redisIncr failed', { key, message });
     return 0;
   }
 }
 
 /**
  * Get-or-set cache pattern.
- * @param {string} key
- * @param {() => Promise<unknown>} factory
- * @param {number} ttlSeconds
- * @returns {Promise<unknown>}
  */
-export async function redisGetOrSet(key, factory, ttlSeconds) {
+export async function redisGetOrSet<T = unknown>(
+  key: string,
+  factory: () => Promise<T>,
+  ttlSeconds: number,
+): Promise<T> {
   const cached = await redisGet(key);
-  if (cached !== null) return cached;
+  if (cached !== null) return cached as T;
 
   const fresh = await factory();
   await redisSet(key, fresh, ttlSeconds);
@@ -172,10 +164,8 @@ export async function redisGetOrSet(key, factory, ttlSeconds) {
 
 /**
  * Delete keys matching a pattern (SCAN-based, non-blocking).
- * @param {string} pattern
- * @returns {Promise<number>}
  */
-export async function redisDeleteByPattern(pattern) {
+export async function redisDeleteByPattern(pattern: string): Promise<number> {
   const client = clientOrNull();
   if (!client) return 0;
 
@@ -193,8 +183,9 @@ export async function redisDeleteByPattern(pattern) {
 
     logger.debug('Redis keys deleted by pattern', { pattern, deleted });
     return deleted;
-  } catch (error) {
-    logger.debug('redisDeleteByPattern failed', { pattern, message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug('redisDeleteByPattern failed', { pattern, message });
     return deleted;
   }
 }

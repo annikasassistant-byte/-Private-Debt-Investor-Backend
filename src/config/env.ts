@@ -157,8 +157,9 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-/** @type {z.infer<typeof envSchema>} */
-const env = Object.freeze(parsed.data);
+export type Env = z.infer<typeof envSchema>;
+
+const env: Readonly<Env> = Object.freeze(parsed.data);
 
 export const isProduction = env.NODE_ENV === 'production';
 export const isDevelopment = env.NODE_ENV === 'development';

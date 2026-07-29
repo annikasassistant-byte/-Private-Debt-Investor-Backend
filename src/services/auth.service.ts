@@ -5,21 +5,51 @@ import logger from '../config/logger.js';
 import { redisIncr, redisDel, redisTtl, redisGet } from '../utils/redis.helper.js';
 import { CACHE_KEYS } from '../constants/cacheKeys.js';
 import { ROLES } from '../enums/roles.js';
+import type { UserRepository } from '../repositories/user.repository.js';
+import type { RoleRepository } from '../repositories/role.repository.js';
+import type { AuditRepository } from '../repositories/audit.repository.js';
+import type { TokenService } from './token.service.js';
+import type { EmailService } from './email.service.js';
+import type { OtpService } from './otp.service.js';
+import type { NotificationService } from './notification.service.js';
+import type { CacheService } from './cache.service.js';
+import type {
+  ChangePasswordInput,
+  LoginInput,
+  RegisterInput,
+  RequestContext,
+  ResetPasswordInput,
+} from '../types/common.js';
+import type { IPermission, IRole, IUser } from '../types/models.js';
+
+export interface AuthServiceDeps {
+  userRepository: UserRepository;
+  roleRepository: RoleRepository;
+  tokenService: TokenService;
+  emailService: EmailService;
+  otpService: OtpService;
+  auditRepository: AuditRepository;
+  notificationService: NotificationService;
+  cacheService: CacheService;
+}
+
+export interface AuthLogoutInput {
+  accessToken?: string | null;
+  refreshToken?: string | null;
+  userId?: string | import('mongoose').Types.ObjectId | null;
+}
 
 export class AuthService {
-  /**
-   * @param {{
-   *   userRepository: import('../repositories/user.repository.js').UserRepository,
-   *   roleRepository: import('../repositories/role.repository.js').RoleRepository,
-   *   tokenService: import('./token.service.js').TokenService,
-   *   emailService: import('./email.service.js').EmailService,
-   *   otpService: import('./otp.service.js').OtpService,
-   *   auditRepository: import('../repositories/audit.repository.js').AuditRepository,
-   *   notificationService: import('./notification.service.js').NotificationService,
-   *   cacheService: import('./cache.service.js').CacheService,
-   * }} deps
-   */
-  constructor(deps) {
+  private users: UserRepository;
+  private roles: RoleRepository;
+  private tokens: TokenService;
+  private email: EmailService;
+  private otp: OtpService;
+  private audit: AuditRepository;
+  private notifications: NotificationService;
+  private cache: CacheService;
+
+  constructor(deps: AuthServiceDeps) {
     this.users = deps.userRepository;
     this.roles = deps.roleRepository;
     this.tokens = deps.tokenService;
@@ -30,7 +60,7 @@ export class AuthService {
     this.cache = deps.cacheService;
   }
 
-  async register(input, context = {}) {
+  async register(input: RegisterInput, context: RequestContext = {}) {
     const email = String(input.email || '').trim().toLowerCase();
     const { password, firstName, lastName, phone } = input;
 
@@ -56,7 +86,7 @@ export class AuthService {
     }
     if (!role) throw ApiError.badRequest('Default role not found. Seed roles first.');
 
-    const user = await this.users.create({
+    const user = (await this.users.create({
       email,
       password,
       firstName,
@@ -65,14 +95,15 @@ export class AuthService {
       role: role._id,
       emailVerified: false,
       isActive: true,
-    });
+    })) as unknown as IUser;
 
     const verifyToken = await this.tokens.storeEmailVerificationToken(user._id, user.email);
     try {
       await this.email.sendVerification(user, verifyToken);
       await this.email.sendWelcome(user);
-    } catch (err) {
-      logger.warn('Failed to send registration emails', { message: err.message });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('Failed to send registration emails', { message });
     }
 
     await this.audit?.log({
@@ -85,7 +116,7 @@ export class AuthService {
     });
 
     const populated = await this.users.findByIdWithRole(user._id);
-    const authTokens = await this.#issueTokens(populated, context);
+    const authTokens = await this.#issueTokens(populated as IUser | null, context);
 
     return {
       user: this.#sanitizeUser(populated),
@@ -93,7 +124,10 @@ export class AuthService {
     };
   }
 
-  async login({ email, password, deviceId, deviceName }, context = {}) {
+  async login(
+    { email, password, deviceId, deviceName }: LoginInput,
+    context: RequestContext = {},
+  ) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail || !password) {
       throw ApiError.badRequest('Email and password are required');
@@ -164,7 +198,10 @@ export class AuthService {
     };
   }
 
-  async logout({ accessToken, refreshToken, userId }, context = {}) {
+  async logout(
+    { accessToken, refreshToken, userId }: AuthLogoutInput,
+    context: RequestContext = {},
+  ) {
     if (accessToken) await this.tokens.blacklistAccessToken(accessToken);
     if (refreshToken) await this.tokens.revokeRefreshToken(refreshToken);
 
@@ -180,7 +217,11 @@ export class AuthService {
     return { success: true };
   }
 
-  async logoutAll(userId, { accessToken } = {}, context = {}) {
+  async logoutAll(
+    userId: string,
+    { accessToken }: { accessToken?: string | null } = {},
+    context: RequestContext = {},
+  ) {
     if (accessToken) await this.tokens.blacklistAccessToken(accessToken);
     await this.tokens.revokeAllRefreshTokensForUser(userId);
     await this.users.clearDevices(userId);
@@ -197,7 +238,7 @@ export class AuthService {
     return { success: true };
   }
 
-  async refreshAccessToken(refreshToken, context = {}) {
+  async refreshAccessToken(refreshToken: string, context: RequestContext = {}) {
     if (!refreshToken) throw ApiError.badRequest('Refresh token is required');
 
     const { payload, refresh } = await this.tokens.rotateRefreshToken(refreshToken, {
@@ -215,17 +256,17 @@ export class AuthService {
     const accessToken = this.tokens.generateAccessToken({
       sub: user._id,
       email: user.email,
-      role: user.role?.slug || user.role,
+      role: (user.role as IRole | undefined)?.slug || user.role,
       permissions: permissionSlugs,
     });
 
     if (context.deviceId) {
-      user.upsertDevice({
+      user.upsertDevice!({
         deviceId: context.deviceId,
-        name: context.deviceName,
+        name: context.deviceName || undefined,
         refreshTokenId: refresh.jti,
       });
-      await user.save({ validateBeforeSave: false });
+      await user.save!({ validateBeforeSave: false });
     }
 
     return {
@@ -236,7 +277,7 @@ export class AuthService {
     };
   }
 
-  async forgotPassword(email, context = {}) {
+  async forgotPassword(email: string, context: RequestContext = {}) {
     const normalized = String(email || '').trim().toLowerCase();
     if (!normalized) throw ApiError.badRequest('Email is required');
 
@@ -248,8 +289,9 @@ export class AuthService {
       const token = await this.tokens.storePasswordResetToken(user._id, user.email);
       try {
         await this.email.sendPasswordReset(user, token);
-      } catch (err) {
-        logger.warn('Failed to send password reset email', { message: err.message });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn('Failed to send password reset email', { message });
       }
       await this.audit?.log({
         actor: user._id,
@@ -264,11 +306,14 @@ export class AuthService {
     return { success: true, message: 'If that email exists, a reset link has been sent' };
   }
 
-  async resetPassword({ token, password }, context = {}) {
+  async resetPassword(
+    { token, password }: ResetPasswordInput,
+    context: RequestContext = {},
+  ) {
     if (!token || !password) throw ApiError.badRequest('Token and new password are required');
     if (password.length < 8) throw ApiError.badRequest('Password must be at least 8 characters');
 
-    const data = await this.tokens.verifyPasswordResetToken(token);
+    const data = (await this.tokens.verifyPasswordResetToken(token)) as { userId: string };
     const user = await this.users.findByIdForAuth(data.userId);
     if (!user) throw ApiError.notFound('User not found');
 
@@ -296,13 +341,13 @@ export class AuthService {
     return { success: true };
   }
 
-  async verifyEmail(token, context = {}) {
-    const data = await this.tokens.verifyEmailToken(token);
-    const user = await this.users.update(data.userId, {
+  async verifyEmail(token: string, context: RequestContext = {}) {
+    const data = (await this.tokens.verifyEmailToken(token)) as { userId: string };
+    const user = (await this.users.update(data.userId, {
       emailVerified: true,
       emailVerificationToken: null,
       emailVerificationExpires: null,
-    });
+    })) as unknown as IUser | null;
     if (!user) throw ApiError.notFound('User not found');
 
     await this.audit?.log({
@@ -317,7 +362,7 @@ export class AuthService {
     return { success: true, user: this.#sanitizeUser(user) };
   }
 
-  async resendVerification(email, context = {}) {
+  async resendVerification(email: string, context: RequestContext = {}) {
     const normalized = String(email || '').trim().toLowerCase();
     const user = await this.users.findByEmail(normalized);
     if (!user) {
@@ -335,7 +380,11 @@ export class AuthService {
     return { success: true, message: 'If that email exists, a verification link has been sent' };
   }
 
-  async changePassword(userId, { currentPassword, newPassword }, context = {}) {
+  async changePassword(
+    userId: string,
+    { currentPassword, newPassword }: ChangePasswordInput,
+    context: RequestContext = {},
+  ) {
     if (!currentPassword || !newPassword) {
       throw ApiError.badRequest('currentPassword and newPassword are required');
     }
@@ -365,12 +414,12 @@ export class AuthService {
     return { success: true };
   }
 
-  async #issueTokens(user, context = {}) {
+  async #issueTokens(user: IUser | null | undefined, context: RequestContext = {}) {
     const permissionSlugs = this.#collectPermissionSlugs(user);
     const accessToken = this.tokens.generateAccessToken({
       sub: user._id,
       email: user.email,
-      role: user.role?.slug || user.role,
+      role: (user.role as IRole)?.slug || user.role,
       permissions: permissionSlugs,
     });
 
@@ -390,19 +439,23 @@ export class AuthService {
     };
   }
 
-  #collectPermissionSlugs(user) {
-    const slugs = new Set();
-    for (const p of user.role?.permissions || []) {
+  #collectPermissionSlugs(user: IUser | null | undefined): string[] {
+    const slugs = new Set<string>();
+    const role = user?.role as IRole | undefined;
+    for (const p of (role?.permissions as IPermission[]) || []) {
       if (p?.slug) slugs.add(p.slug);
     }
-    for (const p of user.permissions || []) {
+    for (const p of (user?.permissions as IPermission[]) || []) {
       if (p?.slug) slugs.add(p.slug);
     }
     return [...slugs];
   }
 
-  #sanitizeUser(user) {
-    const obj = typeof user.toObject === 'function' ? user.toObject({ virtuals: true }) : { ...user };
+  #sanitizeUser(user: IUser | Record<string, unknown> | null | undefined): Record<string, unknown> {
+    const obj =
+      user && typeof (user as IUser).toObject === 'function'
+        ? (user as IUser).toObject!({ virtuals: true })
+        : { ...(user as Record<string, unknown>) };
     delete obj.password;
     delete obj.twoFactorSecret;
     delete obj.emailVerificationToken;
@@ -410,7 +463,7 @@ export class AuthService {
     return obj;
   }
 
-  async #assertNotBruteForced(key) {
+  async #assertNotBruteForced(key: string): Promise<void> {
     const redisKey = CACHE_KEYS.RATE_LIMIT('bruteforce', key);
     const attempts = Number((await redisGet(redisKey)) || 0);
     if (attempts >= env.RATE_LIMIT_AUTH_MAX) {
@@ -421,13 +474,13 @@ export class AuthService {
     }
   }
 
-  async #hitBruteForce(key) {
+  async #hitBruteForce(key: string): Promise<number> {
     const redisKey = CACHE_KEYS.RATE_LIMIT('bruteforce', key);
     const windowSec = Math.ceil(env.RATE_LIMIT_AUTH_WINDOW_MS / 1000);
     return redisIncr(redisKey, windowSec);
   }
 
-  async #clearBruteForce(key) {
+  async #clearBruteForce(key: string): Promise<void> {
     await redisDel(CACHE_KEYS.RATE_LIMIT('bruteforce', key));
   }
 }

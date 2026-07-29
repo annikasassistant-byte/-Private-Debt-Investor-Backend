@@ -1,31 +1,26 @@
 import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import env from '../config/env.js';
+import type { OtpWithExpiry, TokenPairResult } from '../types/common.js';
 
 /**
  * Generate a cryptographically secure random hex token.
- * @param {number} [bytes=32]
- * @returns {string}
  */
-export function generateToken(bytes = 32) {
+export function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
 /**
  * Generate a URL-safe random token (base64url).
- * @param {number} [bytes=32]
- * @returns {string}
  */
-export function generateUrlSafeToken(bytes = 32) {
+export function generateUrlSafeToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
 /**
  * Generate a numeric OTP of configurable length.
- * @param {number} [length]
- * @returns {string}
  */
-export function generateOtp(length = env.OTP_LENGTH) {
+export function generateOtp(length: number = env.OTP_LENGTH): string {
   const digits = Math.max(4, Math.min(10, length));
   const max = 10 ** digits;
   const num = crypto.randomInt(0, max);
@@ -34,20 +29,15 @@ export function generateOtp(length = env.OTP_LENGTH) {
 
 /**
  * Hash a token with SHA-256 for safe storage.
- * @param {string} token
- * @returns {string}
  */
-export function hashToken(token) {
+export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 /**
  * Timing-safe comparison of two strings.
- * @param {string} a
- * @param {string} b
- * @returns {boolean}
  */
-export function safeCompare(a, b) {
+export function safeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(String(a));
   const bufB = Buffer.from(String(b));
 
@@ -60,17 +50,15 @@ export function safeCompare(a, b) {
 
 /**
  * Generate a UUID v4.
- * @returns {string}
  */
-export function generateUuid() {
+export function generateUuid(): string {
   return uuidv4();
 }
 
 /**
  * Generate a password-reset style token pair (raw + hashed).
- * @returns {{ token: string, hashed: string, expiresAt: Date }}
  */
-export function generatePasswordResetToken() {
+export function generatePasswordResetToken(): TokenPairResult {
   const token = generateUrlSafeToken(32);
   return {
     token,
@@ -81,9 +69,8 @@ export function generatePasswordResetToken() {
 
 /**
  * Generate an email-verification token pair.
- * @returns {{ token: string, hashed: string, expiresAt: Date }}
  */
-export function generateEmailVerifyToken() {
+export function generateEmailVerifyToken(): TokenPairResult {
   const token = generateUrlSafeToken(32);
   return {
     token,
@@ -94,10 +81,8 @@ export function generateEmailVerifyToken() {
 
 /**
  * Generate OTP with expiry.
- * @param {number} [length]
- * @returns {{ otp: string, hashed: string, expiresAt: Date }}
  */
-export function generateOtpWithExpiry(length = env.OTP_LENGTH) {
+export function generateOtpWithExpiry(length: number = env.OTP_LENGTH): OtpWithExpiry {
   const otp = generateOtp(length);
   return {
     otp,

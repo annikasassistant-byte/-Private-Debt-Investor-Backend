@@ -1,23 +1,28 @@
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { ApiError } from '../utils/ApiError.js';
 import { MESSAGES } from '../constants/messages.js';
 import { ROLES } from '../enums/roles.js';
+import type { AuthUser } from '../types/express.js';
 
 /**
  * Collect permission slugs from role + user overrides.
- * @param {object} user
- * @returns {Set<string>}
  */
-export function collectUserPermissionSlugs(user) {
-  const slugs = new Set();
+export function collectUserPermissionSlugs(user: AuthUser | null | undefined): Set<string> {
+  const slugs = new Set<string>();
 
-  for (const p of user?.role?.permissions || []) {
+  const rolePermissions =
+    user?.role && typeof user.role === 'object' && 'permissions' in user.role
+      ? (user.role.permissions as Array<string | { slug?: string }>) || []
+      : [];
+
+  for (const p of rolePermissions) {
     if (typeof p === 'string') slugs.add(p);
     else if (p?.slug) slugs.add(p.slug);
   }
 
   for (const p of user?.permissions || []) {
     if (typeof p === 'string') slugs.add(p);
-    else if (p?.slug) slugs.add(p.slug);
+    else if (p && typeof p === 'object' && 'slug' in p && p.slug) slugs.add(p.slug);
   }
 
   // JWT payload may already carry permissions
@@ -30,19 +35,21 @@ export function collectUserPermissionSlugs(user) {
 
 /**
  * Require a specific permission slug (role permissions + user overrides).
- * @param {...string} permissionSlugs
- * @returns {import('express').RequestHandler}
  */
-export function requirePermission(...permissionSlugs) {
+export function requirePermission(...permissionSlugs: Array<string | string[]>): RequestHandler {
   const required = permissionSlugs.flat().filter(Boolean);
 
-  return (req, _res, next) => {
+  return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(ApiError.unauthorized(MESSAGES.UNAUTHORIZED));
     }
 
     const roleSlug =
-      typeof req.user.role === 'string' ? req.user.role : req.user.role?.slug || null;
+      typeof req.user.role === 'string'
+        ? req.user.role
+        : req.user.role && typeof req.user.role === 'object' && 'slug' in req.user.role
+          ? req.user.role.slug || null
+          : null;
 
     if (roleSlug === ROLES.SUPER_ADMIN) {
       return next();
@@ -65,19 +72,21 @@ export function requirePermission(...permissionSlugs) {
 
 /**
  * Require any one of the listed permissions.
- * @param {...string} permissionSlugs
- * @returns {import('express').RequestHandler}
  */
-export function requireAnyPermission(...permissionSlugs) {
+export function requireAnyPermission(...permissionSlugs: Array<string | string[]>): RequestHandler {
   const required = permissionSlugs.flat().filter(Boolean);
 
-  return (req, _res, next) => {
+  return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(ApiError.unauthorized(MESSAGES.UNAUTHORIZED));
     }
 
     const roleSlug =
-      typeof req.user.role === 'string' ? req.user.role : req.user.role?.slug || null;
+      typeof req.user.role === 'string'
+        ? req.user.role
+        : req.user.role && typeof req.user.role === 'object' && 'slug' in req.user.role
+          ? req.user.role.slug || null
+          : null;
 
     if (roleSlug === ROLES.SUPER_ADMIN) {
       return next();

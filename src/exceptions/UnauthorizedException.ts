@@ -4,15 +4,10 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
 import { MESSAGES } from '../constants/messages.js';
 
 export class UnauthorizedException extends AppException {
-  /**
-   * @param {string} [message]
-   * @param {string} [errorCode]
-   * @param {unknown} [details]
-   */
   constructor(
-    message = MESSAGES.UNAUTHORIZED,
-    errorCode = ERROR_CODES.UNAUTHORIZED,
-    details = null,
+    message: string = MESSAGES.UNAUTHORIZED,
+    errorCode: string = ERROR_CODES.UNAUTHORIZED,
+    details: unknown = null,
   ) {
     super(message, HTTP_STATUS.UNAUTHORIZED, errorCode, true, details);
   }

@@ -4,11 +4,7 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
 import { MESSAGES } from '../constants/messages.js';
 
 export class TooManyRequestsException extends AppException {
-  /**
-   * @param {string} [message]
-   * @param {unknown} [details]
-   */
-  constructor(message = MESSAGES.TOO_MANY_REQUESTS, details = null) {
+  constructor(message: string = MESSAGES.TOO_MANY_REQUESTS, details: unknown = null) {
     super(
       message,
       HTTP_STATUS.TOO_MANY_REQUESTS,

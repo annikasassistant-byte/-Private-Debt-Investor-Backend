@@ -1,16 +1,16 @@
+import type { NextFunction, Request, Response } from 'express';
 import env from '../config/env.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { MESSAGES } from '../constants/messages.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
 import { container } from '../di/container.js';
+import type { JwtAccessPayload } from '../types/common.js';
 
 /**
  * Extract JWT from Authorization Bearer header or access cookie.
- * @param {import('express').Request} req
- * @returns {string|null}
  */
-export function extractAccessToken(req) {
+export function extractAccessToken(req: Request): string | null {
   const header = req.headers.authorization || req.headers.Authorization;
   if (typeof header === 'string' && header.startsWith('Bearer ')) {
     const token = header.slice(7).trim();
@@ -28,7 +28,7 @@ export function extractAccessToken(req) {
 /**
  * Authenticate request: verify JWT, check Redis blacklist, load user.
  */
-export const authenticate = asyncHandler(async (req, _res, next) => {
+export const authenticate = asyncHandler(async (req: Request, _res: Response, next: NextFunction) => {
   const token = extractAccessToken(req);
   if (!token) {
     throw new ApiError(MESSAGES.TOKEN_MISSING, 401, ERROR_CODES.TOKEN_MISSING);
@@ -41,7 +41,7 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
     throw ApiError.unauthorized(MESSAGES.TOKEN_INVALID);
   }
 
-  const payload = tokenService.verifyAccessToken(token);
+  const payload = tokenService.verifyAccessToken(token) as JwtAccessPayload & { userId?: string };
   const userId = payload.sub || payload.userId;
   if (!userId) {
     throw ApiError.unauthorized(MESSAGES.TOKEN_INVALID);
@@ -69,7 +69,7 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
 /**
  * Optional auth — attaches user when a valid token is present; never fails for missing token.
  */
-export const optionalAuthenticate = asyncHandler(async (req, _res, next) => {
+export const optionalAuthenticate = asyncHandler(async (req: Request, _res: Response, next: NextFunction) => {
   const token = extractAccessToken(req);
   if (!token) {
     return next();
@@ -80,7 +80,7 @@ export const optionalAuthenticate = asyncHandler(async (req, _res, next) => {
     const blacklisted = await tokenService.isAccessTokenBlacklisted(token);
     if (blacklisted) return next();
 
-    const payload = tokenService.verifyAccessToken(token);
+    const payload = tokenService.verifyAccessToken(token) as JwtAccessPayload & { userId?: string };
     const userId = payload.sub || payload.userId;
     if (!userId) return next();
 

@@ -1,3 +1,4 @@
+import type { CookieOptions, Request, Response } from 'express';
 import env from '../../config/env.js';
 import { container } from '../../di/container.js';
 import { ApiResponse } from '../../utils/ApiResponse.js';
@@ -5,28 +6,25 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 import { MESSAGES } from '../../constants/messages.js';
 import { extractAccessToken } from '../../middlewares/auth.middleware.js';
 import { issueCsrfToken } from '../../middlewares/csrf.middleware.js';
+import type { RequestContext } from '../../types/common.js';
 
-/**
- * @param {import('express').Request} req
- */
-function requestContext(req) {
+function requestContext(req: Request): RequestContext {
   return {
     ip: req.ip || req.socket?.remoteAddress,
     userAgent: req.get('user-agent'),
-    deviceId: req.body?.deviceId || req.headers['x-device-id'],
-    deviceName: req.body?.deviceName || req.headers['x-device-name'],
+    deviceId: (req.body?.deviceId || req.headers['x-device-id']) as string | null | undefined,
+    deviceName: (req.body?.deviceName || req.headers['x-device-name']) as string | null | undefined,
   };
 }
 
-/**
- * @param {import('express').Response} res
- * @param {{ accessToken?: string, refreshToken?: string }} tokens
- */
-function setAuthCookies(res, tokens) {
-  const common = {
+function setAuthCookies(
+  res: Response,
+  tokens: { accessToken?: string; refreshToken?: string },
+): void {
+  const common: CookieOptions = {
     httpOnly: env.COOKIE_HTTP_ONLY,
     secure: env.COOKIE_SECURE,
-    sameSite: env.COOKIE_SAME_SITE,
+    sameSite: env.COOKIE_SAME_SITE as CookieOptions['sameSite'],
     domain: env.COOKIE_DOMAIN,
     path: env.COOKIE_PATH,
   };
@@ -46,14 +44,11 @@ function setAuthCookies(res, tokens) {
   }
 }
 
-/**
- * @param {import('express').Response} res
- */
-function clearAuthCookies(res) {
-  const common = {
+function clearAuthCookies(res: Response): void {
+  const common: CookieOptions = {
     httpOnly: env.COOKIE_HTTP_ONLY,
     secure: env.COOKIE_SECURE,
-    sameSite: env.COOKIE_SAME_SITE,
+    sameSite: env.COOKIE_SAME_SITE as CookieOptions['sameSite'],
     domain: env.COOKIE_DOMAIN,
     path: env.COOKIE_PATH,
   };
@@ -61,21 +56,21 @@ function clearAuthCookies(res) {
   res.clearCookie(env.REFRESH_COOKIE_NAME, common);
 }
 
-export const register = asyncHandler(async (req, res) => {
+export const register = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.register(req.body, requestContext(req));
   setAuthCookies(res, result);
   issueCsrfToken(res);
   return ApiResponse.created(res, result, MESSAGES.CREATED);
 });
 
-export const login = asyncHandler(async (req, res) => {
+export const login = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.login(req.body, requestContext(req));
   setAuthCookies(res, result);
   issueCsrfToken(res);
   return ApiResponse.ok(res, result, MESSAGES.SUCCESS);
 });
 
-export const logout = asyncHandler(async (req, res) => {
+export const logout = asyncHandler(async (req: Request, res: Response) => {
   const accessToken = extractAccessToken(req) || req.accessToken;
   const refreshToken =
     req.body?.refreshToken || req.cookies?.[env.REFRESH_COOKIE_NAME] || null;
@@ -93,7 +88,7 @@ export const logout = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, { success: true }, MESSAGES.SUCCESS);
 });
 
-export const logoutAll = asyncHandler(async (req, res) => {
+export const logoutAll = asyncHandler(async (req: Request, res: Response) => {
   const accessToken = extractAccessToken(req) || req.accessToken;
   await container.authService.logoutAll(
     req.user._id || req.user.id,
@@ -104,7 +99,7 @@ export const logoutAll = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, { success: true }, MESSAGES.SUCCESS);
 });
 
-export const refresh = asyncHandler(async (req, res) => {
+export const refresh = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken =
     req.body?.refreshToken || req.cookies?.[env.REFRESH_COOKIE_NAME] || null;
 
@@ -117,12 +112,12 @@ export const refresh = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, result, MESSAGES.SUCCESS);
 });
 
-export const forgotPassword = asyncHandler(async (req, res) => {
+export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.forgotPassword(req.body.email, requestContext(req));
   return ApiResponse.ok(res, result, MESSAGES.PASSWORD_RESET_SENT);
 });
 
-export const resetPassword = asyncHandler(async (req, res) => {
+export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.resetPassword(
     { token: req.body.token, password: req.body.password },
     requestContext(req),
@@ -131,13 +126,13 @@ export const resetPassword = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, result, MESSAGES.PASSWORD_CHANGED);
 });
 
-export const verifyEmail = asyncHandler(async (req, res) => {
+export const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
   const token = req.body?.token || req.query?.token;
   const result = await container.authService.verifyEmail(token, requestContext(req));
   return ApiResponse.ok(res, result, MESSAGES.SUCCESS);
 });
 
-export const resendVerification = asyncHandler(async (req, res) => {
+export const resendVerification = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.resendVerification(
     req.body.email,
     requestContext(req),
@@ -145,7 +140,7 @@ export const resendVerification = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, result, MESSAGES.EMAIL_SENT);
 });
 
-export const changePassword = asyncHandler(async (req, res) => {
+export const changePassword = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.changePassword(
     req.user._id || req.user.id,
     {

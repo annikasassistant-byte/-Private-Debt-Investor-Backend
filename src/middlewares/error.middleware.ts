@@ -1,19 +1,26 @@
+import type { ErrorRequestHandler, NextFunction, Request, Response } from 'express';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { AppException } from '../exceptions/AppException.js';
 import { ApiError } from '../utils/ApiError.js';
-import env, { isProduction } from '../config/env.js';
+import { isProduction } from '../config/env.js';
 import logger from '../config/logger.js';
 import { HTTP_STATUS } from '../constants/httpStatus.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
 import { MESSAGES } from '../constants/messages.js';
 
+type NormalizeableError = Error & {
+  code?: string | number;
+  errors?: Record<string, { path?: string; message?: string }>;
+  path?: string;
+  value?: unknown;
+  keyValue?: Record<string, unknown>;
+};
+
 /**
  * Normalize known error types into ApiError / AppException.
- * @param {Error} err
- * @returns {AppException}
  */
-function normalizeError(err) {
+function normalizeError(err: unknown): AppException {
   if (err instanceof AppException) {
     return err;
   }
@@ -28,47 +35,49 @@ function normalizeError(err) {
     return new ApiError(err.message || MESSAGES.UPLOAD_FAILED, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.UPLOAD_ERROR);
   }
 
-  if (err.name === 'ValidationError' && err.errors) {
-    const details = Object.values(err.errors).map((e) => ({
+  const error = (err instanceof Error ? err : new Error(String(err))) as NormalizeableError;
+
+  if (error.name === 'ValidationError' && error.errors) {
+    const details = Object.values(error.errors).map((e) => ({
       field: e.path,
       message: e.message,
     }));
     return ApiError.validation(MESSAGES.VALIDATION_FAILED, details);
   }
 
-  if (err.name === 'CastError') {
+  if (error.name === 'CastError') {
     return new ApiError(
-      `Invalid ${err.path || 'id'}: ${err.value}`,
+      `Invalid ${error.path || 'id'}: ${error.value}`,
       HTTP_STATUS.BAD_REQUEST,
       ERROR_CODES.CAST_ERROR,
     );
   }
 
-  if (err.code === 11000 || err.name === 'MongoServerError') {
-    const fields = err.keyValue ? Object.keys(err.keyValue) : [];
+  if (error.code === 11000 || error.name === 'MongoServerError') {
+    const fields = error.keyValue ? Object.keys(error.keyValue) : [];
     return new ApiError(
       fields.length ? `Duplicate value for: ${fields.join(', ')}` : MESSAGES.CONFLICT,
       HTTP_STATUS.CONFLICT,
       ERROR_CODES.DUPLICATE_KEY,
       true,
-      err.keyValue || null,
+      error.keyValue || null,
     );
   }
 
-  if (err.name === 'JsonWebTokenError') {
+  if (error.name === 'JsonWebTokenError') {
     return ApiError.unauthorized(MESSAGES.TOKEN_INVALID);
   }
 
-  if (err.name === 'TokenExpiredError') {
+  if (error.name === 'TokenExpiredError') {
     return ApiError.unauthorized(MESSAGES.TOKEN_EXPIRED);
   }
 
-  if (err.message?.includes('CORS')) {
-    return ApiError.forbidden(err.message);
+  if (error.message?.includes('CORS')) {
+    return ApiError.forbidden(error.message);
   }
 
   return new ApiError(
-    isProduction ? MESSAGES.INTERNAL_ERROR : err.message || MESSAGES.INTERNAL_ERROR,
+    isProduction ? MESSAGES.INTERNAL_ERROR : error.message || MESSAGES.INTERNAL_ERROR,
     HTTP_STATUS.INTERNAL_SERVER_ERROR,
     ERROR_CODES.INTERNAL_ERROR,
     false,
@@ -78,19 +87,20 @@ function normalizeError(err) {
 /**
  * Global Express error handler.
  * Response shape: { success, message, errors, stack?, errorCode?, timestamp }
- *
- * @param {Error} err
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} _next
  */
-export function errorMiddleware(err, req, res, _next) {
+export const errorMiddleware: ErrorRequestHandler = (
+  err: unknown,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+): void => {
   const normalized = normalizeError(err);
+  const raw = err instanceof Error ? err : new Error(String(err));
 
   if (!normalized.isOperational) {
     logger.error('Unhandled error', {
-      message: err.message,
-      stack: err.stack,
+      message: raw.message,
+      stack: raw.stack,
       requestId: req.requestId,
       path: req.originalUrl,
       method: req.method,
@@ -105,7 +115,7 @@ export function errorMiddleware(err, req, res, _next) {
     });
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     success: false,
     message: normalized.message,
     errorCode: normalized.errorCode,
@@ -116,8 +126,8 @@ export function errorMiddleware(err, req, res, _next) {
     requestId: req.requestId || null,
   };
 
-  if (!isProduction && err.stack) {
-    body.stack = err.stack;
+  if (!isProduction && raw.stack) {
+    body.stack = raw.stack;
   }
 
   // Avoid sending headers twice
@@ -127,18 +137,19 @@ export function errorMiddleware(err, req, res, _next) {
 
   const status = normalized.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
   res.status(status).json(body);
-}
+};
 
 /**
  * Catch unhandled mongoose connection-level issues mid-request.
  */
-export function ensureDbConnected(req, _res, next) {
+export function ensureDbConnected(req: Request, _res: Response, next: NextFunction): void {
   if (mongoose.connection.readyState !== 1) {
-    return next(
+    next(
       new ApiError(MESSAGES.DATABASE_ERROR, HTTP_STATUS.SERVICE_UNAVAILABLE, ERROR_CODES.DATABASE_ERROR),
     );
+    return;
   }
-  return next();
+  next();
 }
 
 export default errorMiddleware;
