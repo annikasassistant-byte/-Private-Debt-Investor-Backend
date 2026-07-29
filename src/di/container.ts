@@ -4,6 +4,13 @@ import {
   PermissionRepository,
   RefreshTokenRepository,
   AuditRepository,
+  InvestorRepository,
+  InvestmentRepository,
+  LoanRepository,
+  PaymentRepository,
+  ReportRepository,
+  ContractRepository,
+  TimelineRepository,
 } from '../repositories/index.js';
 import {
   AuthService,
@@ -17,25 +24,20 @@ import {
   OtpService,
   NotificationService,
   AdminBootstrapService,
+  InvestorService,
+  InvestmentService,
+  DocumentService,
+  DashboardService,
+  DomainExportService,
 } from '../services/index.js';
 
-/**
- * Simple DI container wiring repositories → services.
- */
 export class Container {
   constructor() {
-    /** @type {Map<string, any>} */
     this.#singletons = new Map();
   }
 
   #singletons;
 
-  /**
-   * @template T
-   * @param {string} name
-   * @param {() => T} factory
-   * @returns {T}
-   */
   get(name, factory) {
     if (!this.#singletons.has(name)) {
       this.#singletons.set(name, factory());
@@ -43,54 +45,61 @@ export class Container {
     return this.#singletons.get(name);
   }
 
-  // ---- Repositories ----
-
   get userRepository() {
     return this.get('userRepository', () => new UserRepository());
   }
-
   get roleRepository() {
     return this.get('roleRepository', () => new RoleRepository());
   }
-
   get permissionRepository() {
     return this.get('permissionRepository', () => new PermissionRepository());
   }
-
   get refreshTokenRepository() {
     return this.get('refreshTokenRepository', () => new RefreshTokenRepository());
   }
-
   get auditRepository() {
     return this.get('auditRepository', () => new AuditRepository());
   }
-
-  // ---- Infrastructure services ----
+  get investorRepository() {
+    return this.get('investorRepository', () => new InvestorRepository());
+  }
+  get investmentRepository() {
+    return this.get('investmentRepository', () => new InvestmentRepository());
+  }
+  get loanRepository() {
+    return this.get('loanRepository', () => new LoanRepository());
+  }
+  get paymentRepository() {
+    return this.get('paymentRepository', () => new PaymentRepository());
+  }
+  get reportRepository() {
+    return this.get('reportRepository', () => new ReportRepository());
+  }
+  get contractRepository() {
+    return this.get('contractRepository', () => new ContractRepository());
+  }
+  get timelineRepository() {
+    return this.get('timelineRepository', () => new TimelineRepository());
+  }
 
   get cacheService() {
     return this.get('cacheService', () => new CacheService());
   }
-
   get otpService() {
     return this.get('otpService', () => new OtpService());
   }
-
   get emailService() {
     return this.get('emailService', () => new EmailService());
   }
-
   get notificationService() {
     return this.get('notificationService', () => new NotificationService());
   }
-
   get tokenService() {
     return this.get(
       'tokenService',
       () => new TokenService({ refreshTokenRepository: this.refreshTokenRepository }),
     );
   }
-
-  // ---- Domain services ----
 
   get authService() {
     return this.get(
@@ -168,13 +177,73 @@ export class Container {
     );
   }
 
-  /** Reset singletons (tests). */
+  get investorService() {
+    return this.get(
+      'investorService',
+      () =>
+        new InvestorService(
+          this.investorRepository,
+          this.userRepository,
+          this.roleRepository,
+          this.investmentRepository,
+          this.auditRepository,
+        ),
+    );
+  }
+
+  get investmentService() {
+    return this.get(
+      'investmentService',
+      () =>
+        new InvestmentService(
+          this.investmentRepository,
+          this.investorRepository,
+          this.paymentRepository,
+          this.loanRepository,
+          this.timelineRepository,
+          this.investorService,
+          this.auditRepository,
+        ),
+    );
+  }
+
+  get documentService() {
+    return this.get(
+      'documentService',
+      () =>
+        new DocumentService(this.reportRepository, this.contractRepository, this.auditRepository),
+    );
+  }
+
+  get dashboardService() {
+    return this.get(
+      'dashboardService',
+      () =>
+        new DashboardService(
+          this.investorRepository,
+          this.investmentRepository,
+          this.paymentRepository,
+          this.investmentService,
+        ),
+    );
+  }
+
+  get domainExportService() {
+    return this.get(
+      'domainExportService',
+      () =>
+        new DomainExportService(
+          this.investmentRepository,
+          this.paymentRepository,
+          this.investorRepository,
+        ),
+    );
+  }
+
   reset() {
     this.#singletons.clear();
   }
 }
 
-/** Shared application container. */
 export const container = new Container();
-
 export default container;

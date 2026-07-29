@@ -84,7 +84,7 @@ export class AuthService {
     if (input.roleId) {
       role = await this.roles.findById(input.roleId);
     } else {
-      role = await this.roles.findBySlug(input.roleSlug || ROLES.USER);
+      role = await this.roles.findBySlug(input.roleSlug || ROLES.INVESTOR);
     }
     if (!role) throw ApiError.badRequest('Default role not found. Seed roles first.');
 

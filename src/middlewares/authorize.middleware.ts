@@ -32,7 +32,7 @@ export function authorize(...roles: Array<string | string[]>): RequestHandler {
       return next(ApiError.forbidden(MESSAGES.FORBIDDEN));
     }
 
-    if (slug === ROLES.SUPER_ADMIN) {
+    if (slug === ROLES.ADMIN) {
       return next();
     }
 
