@@ -27,6 +27,8 @@ export const MESSAGES = Object.freeze({
   ACCOUNT_NOT_VERIFIED: 'Please verify your email address',
   EMAIL_ALREADY_VERIFIED: 'Email is already verified',
   PASSWORD_RESET_SENT: 'Password reset instructions have been sent',
+  OTP_SENT: 'If that email exists, a verification code has been sent',
+  OTP_VERIFIED: 'OTP verified successfully',
   PASSWORD_CHANGED: 'Password changed successfully',
   EMAIL_SENT: 'Email sent successfully',
 

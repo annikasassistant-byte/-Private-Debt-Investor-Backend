@@ -61,7 +61,9 @@ export class AuthService {
   }
 
   async register(input: RegisterInput, context: RequestContext = {}) {
-    const email = String(input.email || '').trim().toLowerCase();
+    const email = String(input.email || '')
+      .trim()
+      .toLowerCase();
     const { password, firstName, lastName, phone } = input;
 
     if (!email || !password || !firstName || !lastName) {
@@ -124,11 +126,10 @@ export class AuthService {
     };
   }
 
-  async login(
-    { email, password, deviceId, deviceName }: LoginInput,
-    context: RequestContext = {},
-  ) {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+  async login({ email, password, deviceId, deviceName }: LoginInput, context: RequestContext = {}) {
+    const normalizedEmail = String(email || '')
+      .trim()
+      .toLowerCase();
     if (!normalizedEmail || !password) {
       throw ApiError.badRequest('Email and password are required');
     }
@@ -142,7 +143,10 @@ export class AuthService {
       throw ApiError.unauthorized('Invalid email or password');
     }
 
-    if (user.isAccountLocked?.() || (user.isLocked && user.lockUntil && user.lockUntil > new Date())) {
+    if (
+      user.isAccountLocked?.() ||
+      (user.isLocked && user.lockUntil && user.lockUntil > new Date())
+    ) {
       throw ApiError.forbidden('Account is temporarily locked. Try again later.');
     }
 
@@ -278,7 +282,9 @@ export class AuthService {
   }
 
   async forgotPassword(email: string, context: RequestContext = {}) {
-    const normalized = String(email || '').trim().toLowerCase();
+    const normalized = String(email || '')
+      .trim()
+      .toLowerCase();
     if (!normalized) throw ApiError.badRequest('Email is required');
 
     await this.#assertNotBruteForced(`forgot:${context.ip || 'unknown'}`);
@@ -286,13 +292,27 @@ export class AuthService {
 
     const user = await this.users.findByEmail(normalized);
     if (user) {
-      const token = await this.tokens.storePasswordResetToken(user._id, user.email);
+      const { otp, expiresIn } = await this.otp.generate({
+        purpose: 'password_reset',
+        identifier: normalized,
+        meta: { userId: String(user._id) },
+      });
+
       try {
-        await this.email.sendPasswordReset(user, token);
+        await this.email.sendPasswordResetOtp(user, otp);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
-        logger.warn('Failed to send password reset email', { message });
+        logger.warn('Failed to send password reset OTP email', { message });
       }
+
+      if (env.NODE_ENV !== 'production') {
+        logger.info('Password reset OTP generated (non-production)', {
+          email: normalized,
+          otp,
+          expiresIn,
+        });
+      }
+
       await this.audit?.log({
         actor: user._id,
         action: 'auth.forgot_password',
@@ -303,24 +323,100 @@ export class AuthService {
       });
     }
 
-    return { success: true, message: 'If that email exists, a reset link has been sent' };
+    return {
+      success: true,
+      message: 'If that email exists, a verification code has been sent',
+      expiresIn: Math.ceil(env.OTP_EXPIRES_MS / 1000),
+    };
   }
 
-  async resetPassword(
-    { token, password }: ResetPasswordInput,
+  async verifyPasswordResetOtp(
+    { email, otp }: { email: string; otp: string },
     context: RequestContext = {},
   ) {
-    if (!token || !password) throw ApiError.badRequest('Token and new password are required');
+    const normalized = String(email || '')
+      .trim()
+      .toLowerCase();
+    if (!normalized || !otp) {
+      throw ApiError.badRequest('Email and OTP are required');
+    }
+
+    await this.#assertNotBruteForced(`otp:${context.ip || 'unknown'}:${normalized}`);
+
+    const user = await this.users.findByEmail(normalized);
+    if (!user) {
+      await this.#hitBruteForce(`otp:${context.ip || 'unknown'}:${normalized}`);
+      throw ApiError.badRequest('Invalid OTP');
+    }
+
+    try {
+      await this.otp.verify({
+        purpose: 'password_reset',
+        identifier: normalized,
+        otp,
+      });
+    } catch (err) {
+      await this.#hitBruteForce(`otp:${context.ip || 'unknown'}:${normalized}`);
+      throw err;
+    }
+
+    const resetToken = await this.tokens.storePasswordResetToken(user._id, user.email);
+
+    await this.audit?.log({
+      actor: user._id,
+      action: 'auth.verify_otp',
+      resource: 'user',
+      resourceId: user._id,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    });
+
+    return {
+      success: true,
+      email: normalized,
+      resetToken,
+      expiresIn: Math.ceil(env.PASSWORD_RESET_EXPIRES_MS / 1000),
+    };
+  }
+
+  async resetPassword(input: ResetPasswordInput, context: RequestContext = {}) {
+    const password = input.password;
+    if (!password) throw ApiError.badRequest('New password is required');
     if (password.length < 8) throw ApiError.badRequest('Password must be at least 8 characters');
 
-    const data = (await this.tokens.verifyPasswordResetToken(token)) as { userId: string };
-    const user = await this.users.findByIdForAuth(data.userId);
+    let userId: string | undefined;
+
+    const resetToken = input.resetToken || input.token;
+    if (resetToken) {
+      const data = (await this.tokens.verifyPasswordResetToken(resetToken)) as {
+        userId: string;
+      };
+      userId = data.userId;
+    } else if (input.email && input.otp) {
+      const normalized = String(input.email).trim().toLowerCase();
+      await this.otp.verify({
+        purpose: 'password_reset',
+        identifier: normalized,
+        otp: input.otp,
+      });
+      const userByEmail = await this.users.findByEmail(normalized);
+      if (!userByEmail) throw ApiError.notFound('User not found');
+      userId = String(userByEmail._id);
+    } else {
+      throw ApiError.badRequest('Reset token or email + OTP is required');
+    }
+
+    const user = await this.users.findByIdForAuth(userId);
     if (!user) throw ApiError.notFound('User not found');
 
     user.password = password;
     await user.save();
     await user.resetLoginAttempts();
     await this.tokens.revokeAllRefreshTokensForUser(user._id);
+    await this.otp.invalidate({
+      purpose: 'password_reset',
+      identifier: user.email,
+    });
 
     await this.audit?.log({
       actor: user._id,
@@ -363,7 +459,9 @@ export class AuthService {
   }
 
   async resendVerification(email: string, context: RequestContext = {}) {
-    const normalized = String(email || '').trim().toLowerCase();
+    const normalized = String(email || '')
+      .trim()
+      .toLowerCase();
     const user = await this.users.findByEmail(normalized);
     if (!user) {
       return { success: true, message: 'If that email exists, a verification link has been sent' };

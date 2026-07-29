@@ -21,10 +21,7 @@ export class EmailService {
       appName: env.APP_NAME,
       appUrl: env.FRONTEND_URL,
       ...variables,
-    }).reduce(
-      (acc, [key, value]) => acc.replaceAll(`{{${key}}}`, String(value ?? '')),
-      html,
-    );
+    }).reduce((acc, [key, value]) => acc.replaceAll(`{{${key}}}`, String(value ?? '')), html);
   }
 
   #fallbackTemplate(name, variables) {
@@ -64,6 +61,21 @@ export class EmailService {
       to: user.email,
       subject: `Reset your ${env.APP_NAME} password`,
       html,
+    });
+  }
+
+  async sendPasswordResetOtp(user, otp) {
+    const expiresMinutes = Math.ceil(env.OTP_EXPIRES_MS / 60000) || 10;
+    const html = await this.#render('password-reset-otp', {
+      firstName: user.firstName,
+      otp,
+      expiresMinutes,
+    });
+    return this.send({
+      to: user.email,
+      subject: `${otp} is your ${env.APP_NAME} password reset code`,
+      html,
+      text: `Your password reset code is ${otp}. It expires in ${expiresMinutes} minutes.`,
     });
   }
 

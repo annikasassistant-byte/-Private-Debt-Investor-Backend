@@ -1,17 +1,11 @@
 export const ROLES = Object.freeze({
-  SUPER_ADMIN: 'super_admin',
   ADMIN: 'admin',
-  MANAGER: 'manager',
-  USER: 'user',
-  GUEST: 'guest',
+  INVESTOR: 'investor',
 });
 
 export const ROLE_HIERARCHY = Object.freeze({
-  [ROLES.SUPER_ADMIN]: 100,
-  [ROLES.ADMIN]: 80,
-  [ROLES.MANAGER]: 60,
-  [ROLES.USER]: 40,
-  [ROLES.GUEST]: 10,
+  [ROLES.ADMIN]: 100,
+  [ROLES.INVESTOR]: 20,
 });
 
 /**

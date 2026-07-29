@@ -106,10 +106,10 @@ const envSchema = z.object({
   CORS_METHODS: z.string().default('GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'),
   CORS_ALLOWED_HEADERS: z
     .string()
-    .default('Content-Type,Authorization,X-Requested-With,X-API-Key,Accept'),
-  CORS_EXPOSED_HEADERS: z
-    .string()
-    .default('X-Total-Count,X-Page,X-Limit,Content-Disposition'),
+    .default(
+      'Content-Type,Authorization,X-Requested-With,X-API-Key,Accept,X-Device-Id,X-Device-Name,X-CSRF-Token',
+    ),
+  CORS_EXPOSED_HEADERS: z.string().default('X-Total-Count,X-Page,X-Limit,Content-Disposition'),
   CORS_MAX_AGE: z.coerce.number().int().nonnegative().default(86400),
 
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly']).default('info'),

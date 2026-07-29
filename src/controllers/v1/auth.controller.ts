@@ -72,8 +72,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
 export const logout = asyncHandler(async (req: Request, res: Response) => {
   const accessToken = extractAccessToken(req) || req.accessToken;
-  const refreshToken =
-    req.body?.refreshToken || req.cookies?.[env.REFRESH_COOKIE_NAME] || null;
+  const refreshToken = req.body?.refreshToken || req.cookies?.[env.REFRESH_COOKIE_NAME] || null;
 
   await container.authService.logout(
     {
@@ -100,13 +99,9 @@ export const logoutAll = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const refresh = asyncHandler(async (req: Request, res: Response) => {
-  const refreshToken =
-    req.body?.refreshToken || req.cookies?.[env.REFRESH_COOKIE_NAME] || null;
+  const refreshToken = req.body?.refreshToken || req.cookies?.[env.REFRESH_COOKIE_NAME] || null;
 
-  const result = await container.authService.refreshAccessToken(
-    refreshToken,
-    requestContext(req),
-  );
+  const result = await container.authService.refreshAccessToken(refreshToken, requestContext(req));
 
   setAuthCookies(res, result);
   return ApiResponse.ok(res, result, MESSAGES.SUCCESS);
@@ -114,12 +109,26 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
 
 export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.forgotPassword(req.body.email, requestContext(req));
-  return ApiResponse.ok(res, result, MESSAGES.PASSWORD_RESET_SENT);
+  return ApiResponse.ok(res, result, MESSAGES.OTP_SENT);
+});
+
+export const verifyOtp = asyncHandler(async (req: Request, res: Response) => {
+  const result = await container.authService.verifyPasswordResetOtp(
+    { email: req.body.email, otp: req.body.otp },
+    requestContext(req),
+  );
+  return ApiResponse.ok(res, result, MESSAGES.OTP_VERIFIED);
 });
 
 export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.authService.resetPassword(
-    { token: req.body.token, password: req.body.password },
+    {
+      token: req.body.token,
+      resetToken: req.body.resetToken,
+      password: req.body.password,
+      email: req.body.email,
+      otp: req.body.otp,
+    },
     requestContext(req),
   );
   clearAuthCookies(res);
@@ -160,6 +169,7 @@ export default {
   logoutAll,
   refresh,
   forgotPassword,
+  verifyOtp,
   resetPassword,
   verifyEmail,
   resendVerification,

@@ -156,8 +156,19 @@ export interface ChangePasswordInput {
 }
 
 export interface ResetPasswordInput {
-  token: string;
+  /** One-time reset token (from email link or OTP verify). */
+  token?: string;
+  /** Alias for token (OTP verify response). */
+  resetToken?: string;
   password: string;
+  email?: string;
+  otp?: string;
+}
+
+export interface VerifyOtpInput {
+  email: string;
+  otp: string;
+  purpose?: string;
 }
 
 export interface SoftDeleteFields {

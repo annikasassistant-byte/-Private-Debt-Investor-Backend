@@ -41,7 +41,6 @@ export const forgotPasswordValidator = [
 ];
 
 export const resetPasswordValidator = [
-  body('token').notEmpty().withMessage('Reset token is required').isString(),
   body('password')
     .isString()
     .isLength({ min: 8, max: 128 })
@@ -50,6 +49,26 @@ export const resetPasswordValidator = [
     .withMessage('Password must contain a letter')
     .matches(/[0-9]/)
     .withMessage('Password must contain a number'),
+  body('token').optional().isString(),
+  body('resetToken').optional().isString(),
+  body('email').optional().isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('otp').optional().isString().isLength({ min: 4, max: 12 }),
+  body().custom((value) => {
+    if (value.token || value.resetToken || (value.email && value.otp)) {
+      return true;
+    }
+    throw new Error('Reset token or email + OTP is required');
+  }),
+];
+
+export const verifyOtpValidator = [
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('otp')
+    .isString()
+    .isLength({ min: 4, max: 12 })
+    .withMessage('OTP is required')
+    .matches(/^\d+$/)
+    .withMessage('OTP must be numeric'),
 ];
 
 export const verifyEmailValidator = [
@@ -57,11 +76,7 @@ export const verifyEmailValidator = [
   // Also accept token as query — validated in controller/query fallback
 ];
 
-export const verifyEmailQueryValidator = [
-  body('token')
-    .optional()
-    .isString(),
-];
+export const verifyEmailQueryValidator = [body('token').optional().isString()];
 
 export const resendVerificationValidator = [
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
@@ -86,10 +101,7 @@ export const changePasswordValidator = [
 ];
 
 export const refreshTokenValidator = [
-  body('refreshToken')
-    .optional()
-    .isString()
-    .withMessage('Refresh token must be a string'),
+  body('refreshToken').optional().isString().withMessage('Refresh token must be a string'),
   body('deviceId').optional().isString().isLength({ max: 128 }),
   body('deviceName').optional().isString().isLength({ max: 128 }),
 ];
@@ -98,6 +110,7 @@ export default {
   registerValidator,
   loginValidator,
   forgotPasswordValidator,
+  verifyOtpValidator,
   resetPasswordValidator,
   verifyEmailValidator,
   resendVerificationValidator,
