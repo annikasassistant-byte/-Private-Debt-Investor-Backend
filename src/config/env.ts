@@ -8,7 +8,15 @@ const rootDir = path.resolve(__dirname, '../..');
 
 // App config then credentials (URL-only secrets in .env.server override .env)
 dotenv.config({ path: path.join(rootDir, '.env') });
-dotenv.config({ path: path.join(rootDir, '.env.server'), override: true });
+console.log('***********env.ts***********');
+console.log(process.env.NODE_ENV);
+
+if (process.env.NODE_ENV === 'production') {
+  dotenv.config({ path: path.join(rootDir, '.env.server'), override: true });
+} else {
+  dotenv.config({ path: path.join(rootDir, '.env.example'), override: true });
+}
+console.log('***********env.ts***********');
 
 const booleanFromString = z
   .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
