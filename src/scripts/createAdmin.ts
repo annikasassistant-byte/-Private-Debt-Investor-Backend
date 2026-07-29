@@ -10,13 +10,9 @@
  */
 import '../config/env.js';
 import mongoose from 'mongoose';
-import env from '../config/env.js';
 import logger from '../config/logger.js';
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { container } from '../di/container.js';
-import { seedPermissions } from '../seeders/permission.seeder.js';
-import { seedRoles } from '../seeders/role.seeder.js';
-import { seedAdmin } from '../seeders/admin.seeder.js';
 import { ROLES } from '../enums/roles.js';
 
 function parseArgs(argv: string[]) {
@@ -51,45 +47,25 @@ async function main() {
   const lastName = String(args.lastName || process.env.ADMIN_LAST_NAME || 'Admin');
   const force = args.force === true || args.force === 'true' || args.force === '1';
 
-  if (env.NODE_ENV === 'production' && password === 'ChangeMeAdmin123!') {
-    throw new Error('Refusing to create admin with default password in production');
-  }
-
   logger.info('createAdmin starting', { email, force: Boolean(force) });
 
   await connectDatabase();
 
-  await seedPermissions({ permissionRepository: container.permissionRepository });
-  await seedRoles({
-    roleRepository: container.roleRepository,
-    permissionRepository: container.permissionRepository,
+  const result = await container.adminBootstrapService.registerAdmin({
+    email,
+    password,
+    firstName,
+    lastName,
+    force,
+    roleSlug: ROLES.ADMIN,
   });
 
-  const admin = await seedAdmin(
-    {
-      userRepository: container.userRepository,
-      roleRepository: container.roleRepository,
-    },
-    { email, password, firstName, lastName, roleSlug: ROLES.SUPER_ADMIN },
-  );
-
-  if (force) {
-    const user = await container.userRepository.findByEmailForAuth(email);
-    if (user) {
-      user.password = password;
-      user.firstName = firstName;
-      user.lastName = lastName;
-      user.emailVerified = true;
-      user.isActive = true;
-      await user.save();
-      logger.info('Admin password/profile force-updated', { email });
-    }
-  }
-
   logger.info('Admin ready', {
-    id: String(admin._id),
-    email: admin.email,
-    role: ROLES.SUPER_ADMIN,
+    id: String(result.user._id || result.user.id),
+    email: result.user.email,
+    role: ROLES.ADMIN,
+    created: result.created,
+    forceUpdated: result.forceUpdated,
     hint: 'Use this account to sign in via POST /api/v1/auth/login',
   });
 
@@ -102,7 +78,7 @@ async function main() {
   // eslint-disable-next-line no-console
   console.log('');
 
-  return admin;
+  return result;
 }
 
 main()

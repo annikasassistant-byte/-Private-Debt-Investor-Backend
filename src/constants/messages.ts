@@ -29,6 +29,7 @@ export const MESSAGES = Object.freeze({
   PASSWORD_RESET_SENT: 'Password reset instructions have been sent',
   OTP_SENT: 'If that email exists, a verification code has been sent',
   OTP_VERIFIED: 'OTP verified successfully',
+  ADMIN_REGISTERED: 'Platform admin registered successfully',
   PASSWORD_CHANGED: 'Password changed successfully',
   EMAIL_SENT: 'Email sent successfully',
 

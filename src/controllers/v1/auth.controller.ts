@@ -162,6 +162,24 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
   return ApiResponse.ok(res, result, MESSAGES.PASSWORD_CHANGED);
 });
 
+export const registerAdmin = asyncHandler(async (req: Request, res: Response) => {
+  const result = await container.adminBootstrapService.registerAdmin(
+    {
+      email: req.body.email,
+      password: req.body.password,
+      firstName: req.body.firstName,
+      lastName: req.body.lastName,
+      force: req.body.force,
+      roleSlug: req.body.roleSlug,
+    },
+    requestContext(req),
+  );
+  if (result.created) {
+    return ApiResponse.created(res, result, MESSAGES.CREATED);
+  }
+  return ApiResponse.ok(res, result, MESSAGES.ADMIN_REGISTERED);
+});
+
 export default {
   register,
   login,
@@ -174,4 +192,5 @@ export default {
   verifyEmail,
   resendVerification,
   changePassword,
+  registerAdmin,
 };

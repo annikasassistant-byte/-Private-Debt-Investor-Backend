@@ -13,7 +13,7 @@ import { ROLES } from '../enums/roles.js';
 export async function seedAdmin(deps, overrides = {}) {
   const { userRepository, roleRepository } = deps;
 
-  const roleSlug = overrides.roleSlug || ROLES.SUPER_ADMIN;
+  const roleSlug = overrides.roleSlug || ROLES.ADMIN;
   const adminRole = await roleRepository.findBySlug(roleSlug);
   if (!adminRole) {
     throw new Error(`${roleSlug} role missing. Run role seeder first.`);
@@ -55,7 +55,8 @@ export async function seedAdmin(deps, overrides = {}) {
 
   logger.info('Admin user seeded', {
     email,
-    note: env.NODE_ENV === 'production' ? 'password from env' : 'default password — change immediately',
+    note:
+      env.NODE_ENV === 'production' ? 'password from env' : 'default password — change immediately',
   });
 
   return user;

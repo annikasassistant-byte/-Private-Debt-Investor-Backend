@@ -8,3 +8,4 @@ export { CacheService } from './cache.service.js';
 export { ExportService } from './export.service.js';
 export { OtpService } from './otp.service.js';
 export { NotificationService } from './notification.service.js';
+export { AdminBootstrapService } from './adminBootstrap.service.js';

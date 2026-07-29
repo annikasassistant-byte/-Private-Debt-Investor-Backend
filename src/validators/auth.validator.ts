@@ -36,6 +36,16 @@ export const loginValidator = [
   body('deviceName').optional().isString().isLength({ max: 128 }),
 ];
 
+/** Bootstrap platform admin (same as npm run create-admin). Requires X-API-Key. */
+export const registerAdminValidator = [
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  passwordRule,
+  body('firstName').optional().trim().isLength({ max: 100 }),
+  body('lastName').optional().trim().isLength({ max: 100 }),
+  body('force').optional().isBoolean().toBoolean(),
+  body('roleSlug').optional().isString().isLength({ max: 64 }),
+];
+
 export const forgotPasswordValidator = [
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
 ];
@@ -109,6 +119,7 @@ export const refreshTokenValidator = [
 export default {
   registerValidator,
   loginValidator,
+  registerAdminValidator,
   forgotPasswordValidator,
   verifyOtpValidator,
   resetPasswordValidator,

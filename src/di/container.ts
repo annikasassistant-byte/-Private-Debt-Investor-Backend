@@ -16,6 +16,7 @@ import {
   ExportService,
   OtpService,
   NotificationService,
+  AdminBootstrapService,
 } from '../services/index.js';
 
 /**
@@ -151,6 +152,19 @@ export class Container {
     return this.get(
       'exportService',
       () => new ExportService({ userRepository: this.userRepository }),
+    );
+  }
+
+  get adminBootstrapService() {
+    return this.get(
+      'adminBootstrapService',
+      () =>
+        new AdminBootstrapService({
+          userRepository: this.userRepository,
+          roleRepository: this.roleRepository,
+          permissionRepository: this.permissionRepository,
+          auditRepository: this.auditRepository,
+        }),
     );
   }
 
