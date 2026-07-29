@@ -165,12 +165,12 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
 export const registerAdmin = asyncHandler(async (req: Request, res: Response) => {
   const result = await container.adminBootstrapService.registerAdmin(
     {
-      email: req.body.email,
-      password: req.body.password,
-      firstName: req.body.firstName,
-      lastName: req.body.lastName,
-      force: req.body.force,
-      roleSlug: req.body.roleSlug,
+      email: req.body.email || process.env.ADMIN_EMAIL,
+      password: req.body.password || process.env.ADMIN_PASSWORD,
+      firstName: req.body.firstName || process.env.ADMIN_FIRST_NAME,
+      lastName: req.body.lastName || process.env.ADMIN_LAST_NAME,
+      force: req.body.force || process.env.ADMIN_FORCE,
+      roleSlug: req.body.roleSlug || process.env.ADMIN_ROLE_SLUG,
     },
     requestContext(req),
   );
