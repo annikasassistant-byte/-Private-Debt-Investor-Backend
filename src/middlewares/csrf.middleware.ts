@@ -67,16 +67,17 @@ export function csrfMiddleware(req, res, next) {
     return next();
   }
 
+  // Bootstrap / M2M routes (e.g. Postman register-admin with X-API-Key, no browser cookies)
+  const apiKeyHeader = req.headers['x-api-key'] || req.headers['X-API-Key'];
+  if (typeof apiKeyHeader === 'string' && apiKeyHeader.trim()) {
+    return next();
+  }
+
   const headerToken =
-    req.headers[CSRF_HEADER] ||
-    req.headers['csrf-token'] ||
-    req.body?._csrf ||
-    req.query?._csrf;
+    req.headers[CSRF_HEADER] || req.headers['csrf-token'] || req.body?._csrf || req.query?._csrf;
 
   if (!cookieToken || !headerToken || String(cookieToken) !== String(headerToken)) {
-    return next(
-      new ApiError('Invalid CSRF token', HTTP_STATUS.FORBIDDEN, ERROR_CODES.FORBIDDEN),
-    );
+    return next(new ApiError('Invalid CSRF token', HTTP_STATUS.FORBIDDEN, ERROR_CODES.FORBIDDEN));
   }
 
   return next();
