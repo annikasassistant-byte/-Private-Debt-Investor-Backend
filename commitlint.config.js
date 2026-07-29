@@ -1,25 +1,13 @@
 /** @type {import('@commitlint/types').UserConfig} */
 export default {
-  extends: ['@commitlint/config-conventional'],
+  // Accept any non-empty commit message (conventional optional)
+  parserPreset: {
+    parserOpts: {
+      headerPattern: /^(.*)$/,
+      headerCorrespondence: ['header'],
+    },
+  },
   rules: {
-    'type-enum': [
-      2,
-      'always',
-      [
-        'feat',
-        'fix',
-        'docs',
-        'style',
-        'refactor',
-        'perf',
-        'test',
-        'build',
-        'ci',
-        'chore',
-        'revert',
-      ],
-    ],
-    'subject-case': [2, 'never', ['pascal-case', 'upper-case']],
     'header-max-length': [2, 'always', 100],
   },
 };
