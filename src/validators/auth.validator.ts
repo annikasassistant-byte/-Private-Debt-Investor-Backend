@@ -25,8 +25,9 @@ export const registerValidator = [
     .isLength({ max: 100 })
     .withMessage('Last name is too long'),
   body('phone').optional({ nullable: true }).isString().isLength({ max: 32 }),
-  body('roleSlug').optional().isString().isLength({ max: 64 }),
-  body('roleId').optional().isMongoId().withMessage('Invalid role id'),
+  // Public register must never accept role assignment (privilege escalation).
+  body('roleSlug').not().exists().withMessage('roleSlug is not allowed on public registration'),
+  body('roleId').not().exists().withMessage('roleId is not allowed on public registration'),
 ];
 
 export const loginValidator = [

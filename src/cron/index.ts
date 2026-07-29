@@ -2,6 +2,8 @@ import cron from 'node-cron';
 import mongoose from 'mongoose';
 import logger from '../config/logger.js';
 import env from '../config/env.js';
+// Ensure domain models (incl. Payment) are registered for cron jobs
+import '../models/index.js';
 
 /** Soft-deleted users older than this many days are hard-deleted. */
 const SOFT_DELETE_RETENTION_DAYS = Number.parseInt(
@@ -14,7 +16,6 @@ const scheduledTasks = [];
 
 /**
  * Remove expired / revoked refresh tokens from Mongo.
- * @returns {Promise<number>} deleted count
  */
 export async function cleanupExpiredTokens() {
   if (mongoose.connection.readyState !== 1) {
@@ -45,8 +46,6 @@ export async function cleanupExpiredTokens() {
 
 /**
  * Permanently remove soft-deleted users older than retention window.
- * @param {number} [retentionDays]
- * @returns {Promise<number>} deleted count
  */
 export async function cleanupSoftDeletedUsers(retentionDays = SOFT_DELETE_RETENTION_DAYS) {
   if (mongoose.connection.readyState !== 1) {
@@ -68,7 +67,11 @@ export async function cleanupSoftDeletedUsers(retentionDays = SOFT_DELETE_RETENT
     });
 
     const deleted = result.deletedCount || 0;
-    logger.info('Soft-deleted users purged', { deleted, retentionDays, cutoff: cutoff.toISOString() });
+    logger.info('Soft-deleted users purged', {
+      deleted,
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+    });
     return deleted;
   } catch (err) {
     logger.error('Soft-deleted user cleanup failed', { message: err.message, stack: err.stack });
@@ -77,9 +80,44 @@ export async function cleanupSoftDeletedUsers(retentionDays = SOFT_DELETE_RETENT
 }
 
 /**
- * Register cron schedules (and optional setInterval fallbacks).
- * Safe to call once during app bootstrap.
- * @returns {{ tasks: import('node-cron').ScheduledTask[], intervals: NodeJS.Timeout[] }}
+ * Mark past-due unpaid payments as overdue (BUG-009).
+ */
+export async function markOverduePayments() {
+  if (mongoose.connection.readyState !== 1) {
+    logger.warn('Skipping overdue payment job — MongoDB not connected');
+    return 0;
+  }
+
+  try {
+    const Payment = mongoose.models.Payment;
+    if (!Payment) {
+      logger.warn('Payment model not registered — skipping overdue job');
+      return 0;
+    }
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const result = await Payment.updateMany(
+      {
+        dueDate: { $lt: today },
+        status: { $in: ['scheduled', 'upcoming', 'future'] },
+        isDeleted: { $ne: true },
+      },
+      { $set: { status: 'overdue' } },
+    );
+
+    const updated = result.modifiedCount || 0;
+    logger.info('Overdue payments marked', { updated });
+    return updated;
+  } catch (err) {
+    logger.error('Overdue payment job failed', { message: err.message, stack: err.stack });
+    return 0;
+  }
+}
+
+/**
+ * Register cron schedules.
  */
 export function startCronJobs() {
   if (env.NODE_ENV === 'test') {
@@ -89,7 +127,6 @@ export function startCronJobs() {
 
   const intervals = [];
 
-  // Every day at 02:15 UTC — expired tokens
   const tokenTask = cron.schedule(
     '15 2 * * *',
     () => {
@@ -101,7 +138,18 @@ export function startCronJobs() {
   );
   scheduledTasks.push(tokenTask);
 
-  // Every Sunday at 03:30 UTC — soft-deleted users
+  // Daily 01:00 UTC — mark overdue payments
+  const overdueTask = cron.schedule(
+    '0 1 * * *',
+    () => {
+      markOverduePayments().catch((err) => {
+        logger.error('Scheduled overdue payment error', { message: err.message });
+      });
+    },
+    { timezone: 'UTC' },
+  );
+  scheduledTasks.push(overdueTask);
+
   const userTask = cron.schedule(
     '30 3 * * 0',
     () => {
@@ -113,7 +161,6 @@ export function startCronJobs() {
   );
   scheduledTasks.push(userTask);
 
-  // setInterval example: lightweight heartbeat / health log every 6 hours
   const heartbeat = setInterval(
     () => {
       logger.info('Cron heartbeat', {
@@ -128,16 +175,18 @@ export function startCronJobs() {
   intervals.push(heartbeat);
 
   logger.info('Cron jobs registered', {
-    schedules: ['15 2 * * * (tokens)', '30 3 * * 0 (soft-deleted users)', '6h heartbeat'],
+    schedules: [
+      '0 1 * * * (overdue payments)',
+      '15 2 * * * (tokens)',
+      '30 3 * * 0 (soft-deleted users)',
+      '6h heartbeat',
+    ],
     softDeleteRetentionDays: SOFT_DELETE_RETENTION_DAYS,
   });
 
   return { tasks: scheduledTasks, intervals };
 }
 
-/**
- * Stop all scheduled cron tasks.
- */
 export function stopCronJobs() {
   for (const task of scheduledTasks) {
     try {
@@ -155,4 +204,5 @@ export default {
   stopCronJobs,
   cleanupExpiredTokens,
   cleanupSoftDeletedUsers,
+  markOverduePayments,
 };

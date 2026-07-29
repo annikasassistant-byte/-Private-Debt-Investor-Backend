@@ -1,28 +1,87 @@
 import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
 import env from './env.js';
-import { isRedisReady } from './redis.js';
+import { getRedisClient, isRedisReady } from './redis.js';
 import logger from './logger.js';
 
 /**
- * Create a Redis-backed store lazily when Redis is ready; otherwise memory store.
- * Avoids opening Redis sockets at module import time.
- * @param {string} prefix
- * @returns {import('express-rate-limit').Store | undefined}
+ * Lazy Redis store: binds on first hit after Redis is ready; otherwise
+ * express-rate-limit falls back to its built-in memory store when `store` is undefined.
+ * We always provide a thin wrapper so multi-instance Redis kicks in once connected (BUG-010).
  */
 function createStore(prefix) {
-  // Use in-memory by default. Redis store can be swapped in after connect if needed.
-  // Creating RedisStore at import time causes reconnect spam when Redis is offline.
-  logger.debug('Rate limiter using in-memory store', { prefix });
-  return undefined;
+  let redisStore = null;
+  let warned = false;
+
+  const ensureRedisStore = () => {
+    if (redisStore) return redisStore;
+    if (!isRedisReady()) return null;
+    const client = getRedisClient();
+    if (!client) return null;
+    try {
+      redisStore = new RedisStore({
+        prefix: `rl:${prefix}:`,
+        // ioredis — cast for rate-limit-redis RedisReply typing
+        sendCommand: ((...args: string[]) => (client as any).call(...args)) as (
+          ...args: string[]
+        ) => Promise<any>,
+      });
+      logger.info('Rate limiter Redis store ready', { prefix });
+      return redisStore;
+    } catch (err) {
+      if (!warned) {
+        warned = true;
+        logger.warn('Rate limiter Redis store init failed — using memory', {
+          prefix,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return null;
+    }
+  };
+
+  return {
+    async increment(key) {
+      const store = ensureRedisStore();
+      if (store) return store.increment(key);
+
+      // In-memory fallback (single-instance). Same shape as express-rate-limit MemoryStore.
+      if (!this._hits) this._hits = new Map();
+      const windowMs = this.windowMs || env.RATE_LIMIT_WINDOW_MS;
+      const now = Date.now();
+      let entry = this._hits.get(key);
+      if (!entry || entry.resetTime <= now) {
+        entry = { totalHits: 0, resetTime: now + windowMs };
+      }
+      entry.totalHits += 1;
+      this._hits.set(key, entry);
+      return {
+        totalHits: entry.totalHits,
+        resetTime: new Date(entry.resetTime),
+      };
+    },
+    async decrement(key) {
+      const store = ensureRedisStore();
+      if (store?.decrement) return store.decrement(key);
+      const entry = this._hits?.get(key);
+      if (entry) {
+        entry.totalHits = Math.max(0, entry.totalHits - 1);
+        this._hits.set(key, entry);
+      }
+    },
+    async resetKey(key) {
+      const store = ensureRedisStore();
+      if (store?.resetKey) return store.resetKey(key);
+      this._hits?.delete(key);
+    },
+    init(options) {
+      this.windowMs = options?.windowMs || env.RATE_LIMIT_WINDOW_MS;
+      const store = ensureRedisStore();
+      if (store?.init) return store.init(options);
+    },
+  };
 }
 
-/**
- * Shared handler for rate-limit responses.
- * @param {import('express').Request} _req
- * @param {import('express').Response} res
- * @param {Function} _next
- * @param {Object} options
- */
 function rateLimitHandler(_req, res, _next, options) {
   res.status(options.statusCode).json({
     success: false,
@@ -33,9 +92,6 @@ function rateLimitHandler(_req, res, _next, options) {
   });
 }
 
-/**
- * Global API rate limiter.
- */
 export const globalRateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
   max: env.RATE_LIMIT_MAX,
@@ -48,9 +104,6 @@ export const globalRateLimiter = rateLimit({
   skip: () => env.NODE_ENV === 'test',
 });
 
-/**
- * Stricter limiter for auth endpoints (login, register, password reset).
- */
 export const authRateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_AUTH_WINDOW_MS,
   max: env.RATE_LIMIT_AUTH_MAX,
@@ -62,9 +115,6 @@ export const authRateLimiter = rateLimit({
   skip: () => env.NODE_ENV === 'test',
 });
 
-/**
- * Upload endpoint limiter.
- */
 export const uploadRateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_UPLOAD_WINDOW_MS,
   max: env.RATE_LIMIT_UPLOAD_MAX,
@@ -76,11 +126,6 @@ export const uploadRateLimiter = rateLimit({
   skip: () => env.NODE_ENV === 'test',
 });
 
-/**
- * Factory for custom rate limiters.
- * @param {{ windowMs: number, max: number, prefix?: string, message?: string }} options
- * @returns {import('express').RequestHandler}
- */
 export function createRateLimiter({ windowMs, max, prefix = 'custom', message }) {
   return rateLimit({
     windowMs,

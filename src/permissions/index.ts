@@ -76,36 +76,14 @@ export const PERMISSION_DEFINITIONS = Object.values(PERMISSIONS)
  * Default role → permission slug matrix (seeded into Role.permissions).
  */
 export const ROLE_PERMISSION_MATRIX = {
-  [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS).filter(
-    (slug, i, arr) => arr.indexOf(slug) === i,
-  ),
-  [ROLES.ADMIN]: [
-    ...(ROLE_PERMISSIONS[ROLES.ADMIN] || []),
-    PERMISSIONS.USER_LIST,
-    PERMISSIONS.USER_MANAGE,
-    PERMISSIONS.USER_EXPORT,
-    PERMISSIONS.ROLE_CREATE,
-    PERMISSIONS.ROLE_READ,
-    PERMISSIONS.ROLE_UPDATE,
-    PERMISSIONS.ROLE_DELETE,
-    PERMISSIONS.ROLE_LIST,
-    PERMISSIONS.ROLE_ASSIGN,
-    PERMISSIONS.PERMISSION_READ,
-    PERMISSIONS.PERMISSION_LIST,
-    PERMISSIONS.AUDIT_LIST,
-  ],
-  [ROLES.MANAGER]: [
-    ...(ROLE_PERMISSIONS[ROLES.MANAGER] || []),
-    PERMISSIONS.USER_LIST,
-    PERMISSIONS.USER_EXPORT,
-    PERMISSIONS.ROLE_READ,
-    PERMISSIONS.ROLE_LIST,
-    PERMISSIONS.PERMISSION_READ,
-    PERMISSIONS.PERMISSION_LIST,
-    PERMISSIONS.AUDIT_LIST,
-  ],
-  [ROLES.USER]: [...(ROLE_PERMISSIONS[ROLES.USER] || []), PERMISSIONS.USER_READ],
-  [ROLES.GUEST]: [...(ROLE_PERMISSIONS[ROLES.GUEST] || [])],
+  [ROLES.ADMIN]: Object.values(PERMISSIONS).filter((slug, i, arr) => arr.indexOf(slug) === i),
+  [ROLES.INVESTOR]: [
+    PERMISSIONS.PROFILE_READ,
+    PERMISSIONS.PROFILE_UPDATE,
+    PERMISSIONS.DASHBOARD_READ,
+    PERMISSIONS.DASHBOARD_EXPORT,
+    PERMISSIONS.FILE_READ,
+  ].filter(Boolean),
 };
 
 /**
@@ -116,7 +94,10 @@ export function hasPermission(userPermissions, required) {
   const set = userPermissions instanceof Set ? userPermissions : new Set(userPermissions || []);
   const needed = Array.isArray(required) ? required : [required];
   return needed.every(
-    (p) => set.has(p) || set.has(`${String(p).split(':')[0]}:manage`) || set.has(PERMISSIONS.SYSTEM_MANAGE),
+    (p) =>
+      set.has(p) ||
+      set.has(`${String(p).split(':')[0]}:manage`) ||
+      set.has(PERMISSIONS.SYSTEM_MANAGE),
   );
 }
 

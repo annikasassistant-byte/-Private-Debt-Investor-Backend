@@ -151,7 +151,7 @@ router.delete('/me', sensitiveLimiter, invalidateUsersCache, userController.dele
  */
 router.get(
   '/export',
-  authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.MANAGER),
+  authorize(ROLES.ADMIN),
   requirePermission(PERMISSIONS.DASHBOARD_EXPORT),
   exportUsersValidator,
   validate,

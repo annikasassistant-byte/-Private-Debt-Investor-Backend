@@ -4,6 +4,13 @@ import {
   PermissionRepository,
   RefreshTokenRepository,
   AuditRepository,
+  InvestorRepository,
+  InvestmentRepository,
+  LoanRepository,
+  PaymentRepository,
+  ReportRepository,
+  ContractRepository,
+  TimelineRepository,
 } from '../repositories/index.js';
 import {
   AuthService,
@@ -17,6 +24,11 @@ import {
   OtpService,
   NotificationService,
   AdminBootstrapService,
+  InvestorService,
+  InvestmentService,
+  DocumentService,
+  DashboardService,
+  DomainExportService,
 } from '../services/index.js';
 
 /**
@@ -65,6 +77,34 @@ export class Container {
     return this.get('auditRepository', () => new AuditRepository());
   }
 
+  get investorRepository() {
+    return this.get('investorRepository', () => new InvestorRepository());
+  }
+
+  get investmentRepository() {
+    return this.get('investmentRepository', () => new InvestmentRepository());
+  }
+
+  get loanRepository() {
+    return this.get('loanRepository', () => new LoanRepository());
+  }
+
+  get paymentRepository() {
+    return this.get('paymentRepository', () => new PaymentRepository());
+  }
+
+  get reportRepository() {
+    return this.get('reportRepository', () => new ReportRepository());
+  }
+
+  get contractRepository() {
+    return this.get('contractRepository', () => new ContractRepository());
+  }
+
+  get timelineRepository() {
+    return this.get('timelineRepository', () => new TimelineRepository());
+  }
+
   // ---- Infrastructure services ----
 
   get cacheService() {
@@ -90,7 +130,7 @@ export class Container {
     );
   }
 
-  // ---- Domain services ----
+  // ---- Auth / RBAC services ----
 
   get authService() {
     return this.get(
@@ -165,6 +205,71 @@ export class Container {
           permissionRepository: this.permissionRepository,
           auditRepository: this.auditRepository,
         }),
+    );
+  }
+
+  // ---- Domain services ----
+
+  get investorService() {
+    return this.get(
+      'investorService',
+      () =>
+        new InvestorService(
+          this.investorRepository,
+          this.userRepository,
+          this.roleRepository,
+          this.investmentRepository,
+          this.auditRepository,
+        ),
+    );
+  }
+
+  get investmentService() {
+    return this.get(
+      'investmentService',
+      () =>
+        new InvestmentService(
+          this.investmentRepository,
+          this.investorRepository,
+          this.paymentRepository,
+          this.loanRepository,
+          this.timelineRepository,
+          this.investorService,
+          this.auditRepository,
+        ),
+    );
+  }
+
+  get documentService() {
+    return this.get(
+      'documentService',
+      () =>
+        new DocumentService(this.reportRepository, this.contractRepository, this.auditRepository),
+    );
+  }
+
+  get dashboardService() {
+    return this.get(
+      'dashboardService',
+      () =>
+        new DashboardService(
+          this.investorRepository,
+          this.investmentRepository,
+          this.paymentRepository,
+          this.investmentService,
+        ),
+    );
+  }
+
+  get domainExportService() {
+    return this.get(
+      'domainExportService',
+      () =>
+        new DomainExportService(
+          this.investmentRepository,
+          this.paymentRepository,
+          this.investorRepository,
+        ),
     );
   }
 

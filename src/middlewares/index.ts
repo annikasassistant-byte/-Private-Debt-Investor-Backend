@@ -29,11 +29,7 @@ export {
   default as validateDefault,
 } from './validate.middleware.js';
 
-export {
-  errorMiddleware,
-  ensureDbConnected,
-  default as error,
-} from './error.middleware.js';
+export { errorMiddleware, ensureDbConnected, default as error } from './error.middleware.js';
 
 export { notFoundMiddleware, default as notFound } from './notFound.middleware.js';
 
@@ -57,10 +53,7 @@ export {
 
 export { requestIdMiddleware, default as requestId } from './requestId.middleware.js';
 export { requestTimeMiddleware, default as requestTime } from './requestTime.middleware.js';
-export {
-  requestLoggerMiddleware,
-  default as requestLogger,
-} from './requestLogger.middleware.js';
+export { requestLoggerMiddleware, default as requestLogger } from './requestLogger.middleware.js';
 
 export { cacheMiddleware, default as cache } from './cache.middleware.js';
 
@@ -99,8 +92,11 @@ export {
   ipWhitelistMiddleware,
   default as ipWhitelistDefault,
 } from './ipWhitelist.middleware.js';
+export { csrfMiddleware, issueCsrfToken, default as csrf } from './csrf.middleware.js';
+
 export {
-  csrfMiddleware,
-  issueCsrfToken,
-  default as csrf,
-} from './csrf.middleware.js';
+  attachInvestorProfile,
+  requireOwnInvestor,
+  requireAdmin,
+  isAdminUser,
+} from './ownership.middleware.js';

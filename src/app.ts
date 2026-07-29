@@ -24,6 +24,7 @@ import {
   csrfMiddleware,
   notFoundMiddleware,
   errorMiddleware,
+  authenticate,
 } from './middlewares/index.js';
 
 import routes from './routes/index.js';
@@ -71,12 +72,13 @@ export function createExpressApp() {
   app.use(maintenanceMiddleware);
   app.use(csrfMiddleware);
 
-  // ---- Static uploads ----
+  // ---- Protected uploads (BUG-003: never serve private files anonymously) ----
   app.use(
     '/uploads',
+    authenticate,
     express.static(path.resolve(process.cwd(), env.UPLOAD_DIR), {
       maxAge: env.NODE_ENV === 'production' ? '1d' : 0,
-      fallthrough: true,
+      fallthrough: false,
     }),
   );
 

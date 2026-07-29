@@ -29,7 +29,7 @@ export function maintenanceMiddleware(req, _res, next) {
   const roleSlug =
     typeof req.user?.role === 'string' ? req.user.role : req.user?.role?.slug || null;
 
-  if (roleSlug === ROLES.SUPER_ADMIN || roleSlug === ROLES.ADMIN) {
+  if (roleSlug === ROLES.ADMIN) {
     return next();
   }
 

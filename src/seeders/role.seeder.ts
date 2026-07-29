@@ -3,39 +3,20 @@ import { ROLES } from '../enums/roles.js';
 import logger from '../config/logger.js';
 
 const ROLE_META = {
-  [ROLES.SUPER_ADMIN]: {
-    name: 'Super Administrator',
-    description: 'Unrestricted system access',
-    isSystem: true,
-  },
   [ROLES.ADMIN]: {
     name: 'Administrator',
     description: 'Full administrative access',
     isSystem: true,
   },
-  [ROLES.MANAGER]: {
-    name: 'Manager',
-    description: 'Manage users and view audits',
-    isSystem: true,
-  },
-  [ROLES.USER]: {
-    name: 'User',
-    description: 'Standard authenticated user',
-    isSystem: true,
-  },
-  [ROLES.GUEST]: {
-    name: 'Guest',
-    description: 'Limited read-only access',
+  [ROLES.INVESTOR]: {
+    name: 'Investor',
+    description: 'Investor portal access to own data',
     isSystem: true,
   },
 };
 
 /**
  * Seed system roles and assign permissions from matrix.
- * @param {{
- *   roleRepository: import('../repositories/role.repository.js').RoleRepository,
- *   permissionRepository: import('../repositories/permission.repository.js').PermissionRepository,
- * }} deps
  */
 export async function seedRoles(deps) {
   const { roleRepository, permissionRepository } = deps;

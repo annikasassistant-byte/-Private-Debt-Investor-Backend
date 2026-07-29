@@ -16,6 +16,13 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      /** Attached by attachInvestorProfile for investor-role users. */
+      investor?: {
+        _id?: string | import('mongoose').Types.ObjectId;
+        id?: string;
+        user?: string | import('mongoose').Types.ObjectId;
+        [key: string]: unknown;
+      };
       accessToken?: string;
       tokenPayload?: JwtAccessPayload;
       requestId?: string;
@@ -23,9 +30,7 @@ declare global {
       startTime?: bigint;
       durationMs?: number;
       file?: Express.Multer.File;
-      files?:
-        | Express.Multer.File[]
-        | { [fieldname: string]: Express.Multer.File[] };
+      files?: Express.Multer.File[] | { [fieldname: string]: Express.Multer.File[] };
     }
   }
 }

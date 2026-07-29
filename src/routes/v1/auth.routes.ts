@@ -57,7 +57,7 @@ router.post('/register', authLimiter, registerValidator, validate, authControlle
 router.post(
   '/register-admin',
   sensitiveLimiter,
-  // apiKeyMiddleware,
+  apiKeyMiddleware,
   registerAdminValidator,
   validate,
   authController.registerAdmin,

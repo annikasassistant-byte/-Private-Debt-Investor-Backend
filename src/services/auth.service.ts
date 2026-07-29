@@ -80,12 +80,8 @@ export class AuthService {
       throw ApiError.conflict('Email already registered');
     }
 
-    let role = null;
-    if (input.roleId) {
-      role = await this.roles.findById(input.roleId);
-    } else {
-      role = await this.roles.findBySlug(input.roleSlug || ROLES.USER);
-    }
+    // Public self-registration is always investor — ignore any role hints.
+    const role = await this.roles.findBySlug(ROLES.INVESTOR);
     if (!role) throw ApiError.badRequest('Default role not found. Seed roles first.');
 
     const user = (await this.users.create({

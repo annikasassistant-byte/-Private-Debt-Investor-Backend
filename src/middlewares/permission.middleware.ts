@@ -51,7 +51,7 @@ export function requirePermission(...permissionSlugs: Array<string | string[]>):
           ? req.user.role.slug || null
           : null;
 
-    if (roleSlug === ROLES.SUPER_ADMIN) {
+    if (roleSlug === ROLES.ADMIN) {
       return next();
     }
 
@@ -88,7 +88,7 @@ export function requireAnyPermission(...permissionSlugs: Array<string | string[]
           ? req.user.role.slug || null
           : null;
 
-    if (roleSlug === ROLES.SUPER_ADMIN) {
+    if (roleSlug === ROLES.ADMIN) {
       return next();
     }
 

@@ -9,3 +9,6 @@ export { ExportService } from './export.service.js';
 export { OtpService } from './otp.service.js';
 export { NotificationService } from './notification.service.js';
 export { AdminBootstrapService } from './adminBootstrap.service.js';
+export { InvestorService } from './investor.service.js';
+export { InvestmentService } from './investment.service.js';
+export { DocumentService, DashboardService, DomainExportService } from './document.service.js';
