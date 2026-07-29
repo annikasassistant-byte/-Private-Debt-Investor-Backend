@@ -22,6 +22,8 @@ const paymentSchema = new Schema({
     index: true,
   },
   notes: { type: String, trim: true, maxlength: 1000, default: '' },
+  contractualDueDate: { type: Date, default: null },
+  dateAdjustmentNote: { type: String, trim: true, maxlength: 500, default: '' },
 });
 
 applyBaseModel(paymentSchema, mongoose);

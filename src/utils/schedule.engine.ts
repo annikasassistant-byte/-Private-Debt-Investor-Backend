@@ -1,3 +1,9 @@
+import {
+  applyPaymentDatePolicy,
+  resolvePaymentDatePolicy,
+  type PaymentDatePolicy,
+} from './businessCalendar.js';
+
 export interface ScheduleInput {
   principal: number;
   annualRatePercent: number;
@@ -7,15 +13,19 @@ export interface ScheduleInput {
   repaymentModel?: 'amortizing' | 'interest_only' | 'bullet';
   gracePeriodMonths?: number;
   balloonAmount?: number;
+  /** Weekend/holiday handling — default next_business_day */
+  paymentDatePolicy?: PaymentDatePolicy;
 }
 
 export interface ScheduleRow {
   sequence: number;
   dueDate: Date;
+  contractualDueDate: Date;
   principal: number;
   interest: number;
   total: number;
   remainingBalance: number;
+  dateAdjustmentNote: string;
 }
 
 function round2(n: number) {
@@ -52,6 +62,7 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
   const model = input.repaymentModel || 'amortizing';
   const grace = Math.max(0, Math.floor(Number(input.gracePeriodMonths) || 0));
   const balloon = Math.max(0, Number(input.balloonAmount) || 0);
+  const policy = resolvePaymentDatePolicy(input.paymentDatePolicy);
 
   if (!(principal > 0) || !(termMonths > 0) || Number.isNaN(start.getTime())) return [];
 
@@ -65,7 +76,8 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
       : 0;
 
   for (let i = 0; i < termMonths; i += 1) {
-    const dueDate = addMonthsPreserveDay(start, i + 1, paymentDay);
+    const contractual = addMonthsPreserveDay(start, i + 1, paymentDay);
+    const adjusted = applyPaymentDatePolicy(contractual, policy);
     const interest = round2(balance * monthlyRate);
     let principalPart = 0;
     let total = 0;
@@ -81,6 +93,9 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
     } else if (isLast) {
       principalPart = round2(balance);
       total = round2(principalPart + interest);
+      if (balloon > 0) {
+        // balloon already excluded from amortizing PMT; ensure last clears
+      }
     } else {
       principalPart = round2(Math.min(balance, Math.max(0, pmt - interest)));
       total = round2(principalPart + interest);
@@ -95,11 +110,13 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
 
     rows.push({
       sequence: i + 1,
-      dueDate,
+      dueDate: adjusted.dueDate,
+      contractualDueDate: adjusted.contractualDueDate,
       principal: principalPart,
       interest,
       total,
       remainingBalance: balance,
+      dateAdjustmentNote: adjusted.note,
     });
   }
 
@@ -127,3 +144,10 @@ export function regenerateRemainingSchedule(
     gracePeriodMonths: 0,
   }).map((row, idx) => ({ ...row, sequence: input.fromSequence + idx }));
 }
+
+export { resolvePaymentDatePolicy };
+export default {
+  calculateMonthlyPayment,
+  generateRepaymentSchedule,
+  regenerateRemainingSchedule,
+};

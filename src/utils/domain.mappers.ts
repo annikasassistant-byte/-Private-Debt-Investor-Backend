@@ -89,6 +89,9 @@ export function mapPayment(doc: any) {
     remainingBalance: o.remainingBalance ?? 0,
     amountPaid: o.amountPaid ?? 0,
     status: o.status,
+    notes: o.notes || '',
+    contractualDueDate: o.contractualDueDate ? iso(o.contractualDueDate) : iso(o.dueDate),
+    dateAdjustmentNote: o.dateAdjustmentNote || '',
   };
 }
 

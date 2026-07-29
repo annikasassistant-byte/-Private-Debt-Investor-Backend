@@ -152,6 +152,15 @@ const envSchema = z.object({
   SOCKET_CORS_ORIGIN: z.string().default('http://localhost:3000'),
   SOCKET_PING_TIMEOUT: z.coerce.number().int().positive().default(60000),
   SOCKET_PING_INTERVAL: z.coerce.number().int().positive().default(25000),
+
+  /**
+   * Weekend/holiday due-date policy:
+   * - next_business_day (default): move Sat/Sun/holiday to next business day
+   * - keep_contractual: keep calendar date and store an explanatory note
+   */
+  PAYMENT_DATE_POLICY: z
+    .enum(['next_business_day', 'keep_contractual'])
+    .default('next_business_day'),
 });
 
 const parsed = envSchema.safeParse(process.env);

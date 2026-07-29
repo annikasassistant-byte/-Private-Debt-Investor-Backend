@@ -5,6 +5,8 @@ import {
   generateRepaymentSchedule,
   regenerateRemainingSchedule,
 } from '../utils/schedule.engine.js';
+import { resolvePaymentDatePolicy } from '../utils/businessCalendar.js';
+import env from '../config/env.js';
 import { mapInvestment, mapPayment, mapLoan, mapTimeline } from '../utils/domain.mappers.js';
 import type {
   InvestorRepository,
@@ -232,6 +234,7 @@ export class InvestmentService {
       repaymentModel: investment.repaymentModel,
       gracePeriodMonths: investment.gracePeriodMonths,
       balloonAmount: investment.balloonAmount,
+      paymentDatePolicy: resolvePaymentDatePolicy(env.PAYMENT_DATE_POLICY),
     });
 
     const today = startOfDay();
@@ -248,6 +251,9 @@ export class InvestmentService {
         investor: investment.investor,
         sequence: row.sequence,
         dueDate: row.dueDate,
+        contractualDueDate: row.contractualDueDate,
+        dateAdjustmentNote: row.dateAdjustmentNote || '',
+        notes: row.dateAdjustmentNote || '',
         principal: row.principal,
         interest: row.interest,
         total: row.total,
@@ -320,6 +326,7 @@ export class InvestmentService {
       repaymentModel: investment.repaymentModel,
       gracePeriodMonths: 0,
       balloonAmount: investment.balloonAmount,
+      paymentDatePolicy: resolvePaymentDatePolicy(env.PAYMENT_DATE_POLICY),
     });
 
     const today = startOfDay();
@@ -336,6 +343,9 @@ export class InvestmentService {
         investor: investment.investor,
         sequence: row.sequence,
         dueDate: row.dueDate,
+        contractualDueDate: row.contractualDueDate,
+        dateAdjustmentNote: row.dateAdjustmentNote || '',
+        notes: row.dateAdjustmentNote || '',
         principal: row.principal,
         interest: row.interest,
         total: row.total,
