@@ -19,6 +19,7 @@ export const REPAYMENT_MODEL = Object.freeze({
   AMORTIZING: 'amortizing',
   INTEREST_ONLY: 'interest_only',
   BULLET: 'bullet',
+  FIXED_MONTHLY_PAYMENT: 'fixed_monthly_payment',
 });
 
 export const REPORT_CATEGORY = Object.freeze({

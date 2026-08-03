@@ -167,10 +167,10 @@ export function exportInvestmentStatementPdf(payload) {
 
     const summary = [
       ['Investment Principal', money(investment?.principal)],
-      ['Interest Rate', `${investment?.interestRate ?? 0}%`],
+      ['Financing Fee Rate', `${investment?.interestRate ?? 0}%`],
       ['Current Balance', money(investment?.outstandingBalance)],
       ['Principal Repaid', money(investment?.principalRepaid)],
-      ['Interest Earned', money(investment?.interestEarned)],
+      ['Financing Fee Earned', money(investment?.interestEarned)],
       ['Status', String(investment?.status || '—')],
       ['Maturity Date', investment?.maturityDate || '—'],
     ];
@@ -188,7 +188,7 @@ export function exportInvestmentStatementPdf(payload) {
       'Due Date',
       'Payment Date',
       'Principal',
-      'Interest',
+      'Financing Fee',
       'Total',
       'Balance',
       'Status',

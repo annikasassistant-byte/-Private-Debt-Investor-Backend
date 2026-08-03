@@ -1,9 +1,11 @@
 import { ApiError } from '../utils/ApiError.js';
 import { INVESTMENT_STATUS, PAYMENT_STATUS, TIMELINE_EVENT_TYPE } from '../enums/domain.js';
 import {
+  calculateFixedMonthlyPayment,
   calculateMonthlyPayment,
   generateRepaymentSchedule,
   regenerateRemainingSchedule,
+  type RepaymentModel,
 } from '../utils/schedule.engine.js';
 import { resolvePaymentDatePolicy } from '../utils/businessCalendar.js';
 import env from '../config/env.js';
@@ -29,6 +31,22 @@ function addMonths(date: Date, months: number) {
   const d = new Date(date.getTime());
   d.setUTCMonth(d.getUTCMonth() + months);
   return d;
+}
+
+function clampPaymentDay(day: number) {
+  return Math.min(31, Math.max(1, Math.floor(Number(day) || 15)));
+}
+
+function resolveMonthlyPaymentAmount(
+  principal: number,
+  rate: number,
+  termMonths: number,
+  repaymentModel?: string | null,
+) {
+  if (repaymentModel === 'fixed_monthly_payment') {
+    return calculateFixedMonthlyPayment(principal, rate, termMonths);
+  }
+  return calculateMonthlyPayment(principal, rate, termMonths);
 }
 
 export class InvestmentService {
@@ -82,7 +100,13 @@ export class InvestmentService {
       throw ApiError.badRequest('Invalid principal, interestRate or termMonths');
     }
 
-    const monthlyPayment = calculateMonthlyPayment(principal, interestRate, termMonths);
+    const repaymentModel = (input.repaymentModel || 'amortizing') as RepaymentModel;
+    const monthlyPayment = resolveMonthlyPaymentAmount(
+      principal,
+      interestRate,
+      termMonths,
+      repaymentModel,
+    );
     const maturityDate = addMonths(startDate, termMonths);
 
     const investment = await this.investments.create(
@@ -99,8 +123,8 @@ export class InvestmentService {
         status: input.status || INVESTMENT_STATUS.ACTIVE,
         startDate,
         maturityDate,
-        paymentDay: Math.min(28, Math.max(1, paymentDay)),
-        repaymentModel: input.repaymentModel || 'amortizing',
+        paymentDay: clampPaymentDay(paymentDay),
+        repaymentModel,
         gracePeriodMonths: Number(input.gracePeriodMonths || 0),
         balloonAmount: Number(input.balloonAmount || 0),
         notes: input.notes || '',
@@ -179,15 +203,21 @@ export class InvestmentService {
       if (input[key] !== undefined) update[key] = input[key];
     }
 
+    if (update.paymentDay !== undefined) {
+      update.paymentDay = clampPaymentDay(Number(update.paymentDay));
+    }
+
     if (
       update.principal !== undefined ||
       update.interestRate !== undefined ||
-      update.termMonths !== undefined
+      update.termMonths !== undefined ||
+      update.repaymentModel !== undefined
     ) {
       const principal = Number(update.principal ?? existing.principal);
       const rate = Number(update.interestRate ?? existing.interestRate);
       const term = Number(update.termMonths ?? existing.termMonths);
-      update.monthlyPayment = calculateMonthlyPayment(principal, rate, term);
+      const model = String(update.repaymentModel ?? existing.repaymentModel);
+      update.monthlyPayment = resolveMonthlyPaymentAmount(principal, rate, term, model);
       if (update.startDate || update.termMonths) {
         const start = new Date((update.startDate as Date) || existing.startDate);
         update.maturityDate = addMonths(start, term);
@@ -397,7 +427,7 @@ export class InvestmentService {
         return {
           type,
           title,
-          description: `Principal ${p.principal} · Interest ${p.interest}.${note}`,
+          description: `Principal ${p.principal} · Financing Fee ${p.interest}.${note}`,
           date: p.dueDate,
           amount: p.total,
           status,

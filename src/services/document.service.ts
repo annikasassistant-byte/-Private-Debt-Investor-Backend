@@ -342,36 +342,58 @@ export class DashboardService {
   async investorDashboard(investorId: string) {
     const invResult = await this.investments.findMany(
       { investor: investorId },
-      { limit: 20, page: 1, sort: '-createdAt', lean: true },
+      { limit: 100, page: 1, sort: '-createdAt', lean: true },
     );
-    const investments = invResult.data.map(mapInvestment);
+    const investments = invResult.data.map(mapInvestment).filter(Boolean);
+    // Keep singular `investment` for backward compatibility (latest by createdAt).
     const investment = investments[0] || null;
-    let payments: any[] = [];
-    let timeline: any[] = [];
-    if (investment) {
-      const pay = await this.investmentService.listPayments(investment.id, investorId);
-      payments = pay.data;
-      const tl = await this.investmentService.listTimeline(
-        { investmentId: investment.id, limit: 100 },
-        investorId,
-      );
-      timeline = tl.data;
-    }
+
+    const [payResult, tlResult] = await Promise.all([
+      this.investmentService.listAllPayments({ limit: 500, sort: 'dueDate' }, investorId),
+      this.investmentService.listTimeline({ limit: 200, sort: 'date' }, investorId),
+    ]);
+    const payments = payResult.data;
+    const timeline = tlResult.data;
 
     const nextPayment =
-      payments.find((p) => p.status === 'upcoming' || p.status === 'overdue') || null;
-    const stats = investment
+      payments.find((p) => p.status === 'upcoming' || p.status === 'overdue') ||
+      payments.find((p) => p.status === 'scheduled' || p.status === 'future') ||
+      null;
+
+    const nextFromInvestments = investments
+      .filter((inv) => inv?.nextPaymentDate)
+      .sort((a, b) => String(a.nextPaymentDate).localeCompare(String(b.nextPaymentDate)))[0];
+
+    const latestMaturity = investments.reduce((latest: string | null, inv) => {
+      if (!inv?.maturityDate) return latest;
+      if (!latest || inv.maturityDate > latest) return inv.maturityDate;
+      return latest;
+    }, null);
+
+    const upcomingPayments = payments.filter((p) =>
+      ['upcoming', 'scheduled', 'future', 'overdue'].includes(p.status),
+    );
+
+    const stats = investments.length
       ? {
-          investmentAmount: investment.principal,
-          outstandingBalance: investment.outstandingBalance,
-          principalRepaid: investment.principalRepaid,
-          interestEarned: investment.interestEarned,
-          nextPaymentDate: investment.nextPaymentDate || nextPayment?.dueDate || null,
-          nextPaymentAmount: investment.nextPaymentAmount || nextPayment?.total || 0,
-          maturityDate: investment.maturityDate,
-          status: investment.status,
+          investmentAmount: investments.reduce((s, inv) => s + (inv.principal || 0), 0),
+          outstandingBalance: investments.reduce((s, inv) => s + (inv.outstandingBalance || 0), 0),
+          principalRepaid: investments.reduce((s, inv) => s + (inv.principalRepaid || 0), 0),
+          interestEarned: investments.reduce((s, inv) => s + (inv.interestEarned || 0), 0),
+          nextPaymentDate: nextFromInvestments?.nextPaymentDate || nextPayment?.dueDate || null,
+          nextPaymentAmount: nextFromInvestments?.nextPaymentAmount || nextPayment?.total || 0,
+          maturityDate: latestMaturity,
+          status: investments.some((inv) => inv.status === 'active')
+            ? 'active'
+            : investment?.status || null,
           repaymentCount: payments.filter((p) => p.status === 'completed').length,
           overdueCount: payments.filter((p) => p.status === 'overdue').length,
+          upcomingPaymentCount: upcomingPayments.length,
+          returnedAmount: investments.reduce(
+            (s, inv) => s + (inv.principalRepaid || 0) + (inv.interestEarned || 0),
+            0,
+          ),
+          investmentCount: investments.length,
         }
       : null;
 
@@ -405,7 +427,7 @@ export class DomainExportService {
       'Due Date': p.dueDate,
       'Payment Date': p.paymentDate || '',
       Principal: p.principal,
-      Interest: p.interest,
+      'Financing Fee': p.interest,
       'Total Payment': p.total,
       Balance: p.remainingBalance,
       Status: p.status,

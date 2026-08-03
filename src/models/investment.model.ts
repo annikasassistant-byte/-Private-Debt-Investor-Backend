@@ -22,7 +22,7 @@ const investmentSchema = new Schema({
   },
   startDate: { type: Date, required: true },
   maturityDate: { type: Date, required: true },
-  paymentDay: { type: Number, min: 1, max: 28, default: 15 },
+  paymentDay: { type: Number, min: 1, max: 31, default: 15 },
   repaymentModel: {
     type: String,
     enum: Object.values(REPAYMENT_MODEL),

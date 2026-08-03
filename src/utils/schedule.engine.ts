@@ -4,13 +4,15 @@ import {
   type PaymentDatePolicy,
 } from './businessCalendar.js';
 
+export type RepaymentModel = 'amortizing' | 'interest_only' | 'bullet' | 'fixed_monthly_payment';
+
 export interface ScheduleInput {
   principal: number;
   annualRatePercent: number;
   termMonths: number;
   startDate: Date | string;
   paymentDay?: number;
-  repaymentModel?: 'amortizing' | 'interest_only' | 'bullet';
+  repaymentModel?: RepaymentModel;
   gracePeriodMonths?: number;
   balloonAmount?: number;
   /** Weekend/holiday handling — default next_business_day */
@@ -53,6 +55,80 @@ export function calculateMonthlyPayment(
   return round2((principal * r * factor) / (factor - 1));
 }
 
+/**
+ * Fixed monthly payment: total = principal + flat financing fee,
+ * split evenly. Fee is principal * feePercent / 100 (not compound).
+ */
+export function calculateFixedMonthlyPayment(
+  principal: number,
+  feePercent: number,
+  termMonths: number,
+): number {
+  if (termMonths <= 0 || principal <= 0) return 0;
+  const totalFee = round2(principal * (feePercent / 100));
+  return round2((principal + totalFee) / termMonths);
+}
+
+function buildFixedMonthlyRows(
+  principal: number,
+  feePercent: number,
+  termMonths: number,
+  start: Date,
+  paymentDay: number,
+  policy: ReturnType<typeof resolvePaymentDatePolicy>,
+): ScheduleRow[] {
+  const totalFee = round2(principal * (feePercent / 100));
+  const totalRepayment = round2(principal + totalFee);
+  const baseMonthly = round2(totalRepayment / termMonths);
+  const baseFee = round2(totalFee / termMonths);
+  const basePrincipal = round2(baseMonthly - baseFee);
+
+  const rows: ScheduleRow[] = [];
+  let remainingPrincipal = principal;
+  let remainingFee = totalFee;
+
+  for (let i = 0; i < termMonths; i += 1) {
+    const contractual = addMonthsPreserveDay(start, i + 1, paymentDay);
+    const adjusted = applyPaymentDatePolicy(contractual, policy);
+    const isLast = i === termMonths - 1;
+
+    let principalPart: number;
+    let interest: number;
+    let total: number;
+
+    if (isLast) {
+      principalPart = round2(remainingPrincipal);
+      interest = round2(remainingFee);
+      total = round2(principalPart + interest);
+    } else {
+      principalPart = round2(Math.min(remainingPrincipal, basePrincipal));
+      interest = round2(Math.min(remainingFee, baseFee));
+      total = round2(principalPart + interest);
+      const drift = round2(baseMonthly - total);
+      if (drift !== 0 && Math.abs(drift) < 0.05) {
+        interest = round2(interest + drift);
+        total = round2(principalPart + interest);
+      }
+    }
+
+    remainingPrincipal = round2(Math.max(0, remainingPrincipal - principalPart));
+    remainingFee = round2(Math.max(0, remainingFee - interest));
+
+    rows.push({
+      sequence: i + 1,
+      dueDate: adjusted.dueDate,
+      contractualDueDate: adjusted.contractualDueDate,
+      principal: principalPart,
+      interest,
+      total,
+      remainingBalance: remainingPrincipal,
+      dateAdjustmentNote: adjusted.note,
+    });
+  }
+
+  return rows;
+}
+
 export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
   const principal = Number(input.principal);
   const annualRate = Number(input.annualRatePercent);
@@ -65,6 +141,10 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
   const policy = resolvePaymentDatePolicy(input.paymentDatePolicy);
 
   if (!(principal > 0) || !(termMonths > 0) || Number.isNaN(start.getTime())) return [];
+
+  if (model === 'fixed_monthly_payment') {
+    return buildFixedMonthlyRows(principal, annualRate, termMonths, start, paymentDay, policy);
+  }
 
   const monthlyRate = annualRate / 100 / 12;
   const rows: ScheduleRow[] = [];
@@ -148,6 +228,7 @@ export function regenerateRemainingSchedule(
 export { resolvePaymentDatePolicy };
 export default {
   calculateMonthlyPayment,
+  calculateFixedMonthlyPayment,
   generateRepaymentSchedule,
   regenerateRemainingSchedule,
 };

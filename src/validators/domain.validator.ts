@@ -30,8 +30,10 @@ export const createInvestmentValidator = [
   body('interestRate').isFloat({ min: 0 }),
   body('termMonths').isInt({ min: 1 }),
   body('startDate').optional().isISO8601(),
-  body('paymentDay').optional().isInt({ min: 1, max: 28 }),
-  body('repaymentModel').optional().isIn(['amortizing', 'interest_only', 'bullet']),
+  body('paymentDay').optional().isInt({ min: 1, max: 31 }),
+  body('repaymentModel')
+    .optional()
+    .isIn(['amortizing', 'interest_only', 'bullet', 'fixed_monthly_payment']),
   body('gracePeriodMonths').optional().isInt({ min: 0 }),
   body('balloonAmount').optional().isFloat({ min: 0 }),
   body('borrower').optional().isString().isLength({ max: 200 }),
@@ -43,8 +45,10 @@ export const updateInvestmentValidator = [
   body('interestRate').optional().isFloat({ min: 0 }),
   body('termMonths').optional().isInt({ min: 1 }),
   body('status').optional().isIn(['pending', 'active', 'matured', 'closed']),
-  body('paymentDay').optional().isInt({ min: 1, max: 28 }),
-  body('repaymentModel').optional().isIn(['amortizing', 'interest_only', 'bullet']),
+  body('paymentDay').optional().isInt({ min: 1, max: 31 }),
+  body('repaymentModel')
+    .optional()
+    .isIn(['amortizing', 'interest_only', 'bullet', 'fixed_monthly_payment']),
   body('gracePeriodMonths').optional().isInt({ min: 0 }),
   body('balloonAmount').optional().isFloat({ min: 0 }),
   body('startDate').optional().isISO8601(),
