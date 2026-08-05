@@ -15,6 +15,7 @@ let httpServer = null;
 let io = null;
 let isShuttingDown = false;
 
+// line of code to test git push
 /**
  * Bootstrap application: DB → Redis → Events → Workers → Cron → HTTP → Socket.IO.
  */
