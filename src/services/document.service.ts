@@ -192,10 +192,12 @@ export class DocumentService {
     if (!input.title) throw ApiError.badRequest('title is required');
     if (!file && !input.fileUrl) throw ApiError.badRequest('file is required');
     const assigned = parseAssignedInvestors(input);
+    const type = input.type || 'loan_agreement';
+    const { resolveContractTitle } = await import('../utils/documentTitles.js');
     const doc = await this.contracts.create(
       {
-        title: input.title,
-        type: input.type || 'loan_agreement',
+        title: resolveContractTitle(input.title, type),
+        type,
         fileName: file?.originalname || input.fileName || '',
         fileUrl: input.fileUrl || (file ? `/uploads/${file.filename}` : ''),
         mimeType: file?.mimetype || input.mimeType || '',
@@ -429,14 +431,25 @@ export class DomainExportService {
     const investor = await this.investors.findById(String(investment.investor));
     const result = await this.payments.findByInvestment(investmentId);
     const mappedPayments = result.data.map(mapPayment).filter(Boolean);
+    const statusDe: Record<string, string> = {
+      completed: 'Bezahlt',
+      paid: 'Bezahlt',
+      partially_paid: 'Teilweise bezahlt',
+      upcoming: 'Bevorstehend',
+      scheduled: 'Geplant',
+      future: 'Zukünftig',
+      overdue: 'Überfällig',
+      cancelled: 'Storniert',
+      pending: 'Ausstehend',
+    };
     const rows = mappedPayments.map((p: any) => ({
-      'Due Date': p.dueDate,
-      'Payment Date': p.paymentDate || '',
-      Principal: p.principal,
-      'Financing Fee': p.interest,
-      'Total Payment': p.total,
-      Balance: p.remainingBalance,
-      Status: p.status,
+      'Geplantes Fälligkeitsdatum': p.dueDate,
+      'Tatsächliches Zahlungsdatum': p.paymentDate || '',
+      Tilgung: p.principal,
+      Finanzierungsgebühr: p.interest,
+      Gesamtzahlung: p.total,
+      Restsaldo: p.remainingBalance,
+      Status: statusDe[p.status] || p.status,
     }));
 
     const mappedInvestment = mapInvestment(investment);

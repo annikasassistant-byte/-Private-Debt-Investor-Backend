@@ -13,6 +13,29 @@ function addMonthsPreserveDay(date, months, paymentDay) {
   return d;
 }
 
+/**
+ * Month offset from investment start → first contractual installment.
+ *
+ * Product rule (QA):
+ * - start day < payment day → candidate same month on payment day
+ * - start day >= payment day → next month on payment day
+ * - If same-month candidate is fewer than 14 days after start, bump +1 month
+ *   (Aug 10 + day 15 → Sep 15, not Aug 15)
+ *
+ * Documented equal-day choice: start 15 + day 15 → next month (Oct 15).
+ */
+export function resolveFirstPaymentMonthOffset(start, paymentDay) {
+  const startDay = start.getUTCDate();
+  const day = paymentDay ?? startDay;
+  let offset = startDay < day ? 0 : 1;
+  const candidate = addMonthsPreserveDay(start, offset, day);
+  const leadDays = (candidate.getTime() - start.getTime()) / 86_400_000;
+  if (leadDays < 14) {
+    offset += 1;
+  }
+  return offset;
+}
+
 export function calculateMonthlyPayment(principal, annualRatePercent, termMonths) {
   if (termMonths <= 0 || principal <= 0) return 0;
   const r = annualRatePercent / 100 / 12;
@@ -32,7 +55,15 @@ export function calculateFixedMonthlyPayment(principal, feePercent, termMonths) 
   return round2((principal + totalFee) / termMonths);
 }
 
-function buildFixedMonthlyRows(principal, feePercent, termMonths, start, paymentDay, policy) {
+function buildFixedMonthlyRows(
+  principal,
+  feePercent,
+  termMonths,
+  start,
+  paymentDay,
+  policy,
+  firstOffset,
+) {
   const totalFee = round2(principal * (feePercent / 100));
   const totalRepayment = round2(principal + totalFee);
   const baseMonthly = round2(totalRepayment / termMonths);
@@ -44,7 +75,7 @@ function buildFixedMonthlyRows(principal, feePercent, termMonths, start, payment
   let remainingFee = totalFee;
 
   for (let i = 0; i < termMonths; i += 1) {
-    const contractual = addMonthsPreserveDay(start, i + 1, paymentDay);
+    const contractual = addMonthsPreserveDay(start, firstOffset + i, paymentDay);
     const adjusted = applyPaymentDatePolicy(contractual, policy);
     const isLast = i === termMonths - 1;
 
@@ -89,9 +120,17 @@ function buildFixedMonthlyRows(principal, feePercent, termMonths, start, payment
  * Bullet: single maturity payment of principal + simple accrued financing fee.
  * Distinct from interest_only (which charges fee every period and principal at end).
  */
-function buildBulletRows(principal, annualRate, termMonths, start, paymentDay, policy) {
+function buildBulletRows(
+  principal,
+  annualRate,
+  termMonths,
+  start,
+  paymentDay,
+  policy,
+  firstOffset,
+) {
   const monthlyRate = annualRate / 100 / 12;
-  const contractual = addMonthsPreserveDay(start, termMonths, paymentDay);
+  const contractual = addMonthsPreserveDay(start, firstOffset + termMonths - 1, paymentDay);
   const adjusted = applyPaymentDatePolicy(contractual, policy);
   const interest = round2(principal * monthlyRate * termMonths);
   const principalPart = round2(principal);
@@ -122,12 +161,33 @@ export function generateRepaymentSchedule(input) {
 
   if (!(principal > 0) || !(termMonths > 0) || Number.isNaN(start.getTime())) return [];
 
+  const firstOffset =
+    input.firstMonthOffset != null
+      ? Math.max(0, Math.floor(Number(input.firstMonthOffset)))
+      : resolveFirstPaymentMonthOffset(start, paymentDay);
+
   if (model === 'fixed_monthly_payment') {
-    return buildFixedMonthlyRows(principal, annualRate, termMonths, start, paymentDay, policy);
+    return buildFixedMonthlyRows(
+      principal,
+      annualRate,
+      termMonths,
+      start,
+      paymentDay,
+      policy,
+      firstOffset,
+    );
   }
 
   if (model === 'bullet') {
-    return buildBulletRows(principal, annualRate, termMonths, start, paymentDay, policy);
+    return buildBulletRows(
+      principal,
+      annualRate,
+      termMonths,
+      start,
+      paymentDay,
+      policy,
+      firstOffset,
+    );
   }
 
   const monthlyRate = annualRate / 100 / 12;
@@ -140,7 +200,7 @@ export function generateRepaymentSchedule(input) {
       : 0;
 
   for (let i = 0; i < termMonths; i += 1) {
-    const contractual = addMonthsPreserveDay(start, i + 1, paymentDay);
+    const contractual = addMonthsPreserveDay(start, firstOffset + i, paymentDay);
     const adjusted = applyPaymentDatePolicy(contractual, policy);
     const interest = round2(balance * monthlyRate);
     let principalPart = 0;
@@ -193,22 +253,24 @@ export function regenerateRemainingSchedule(input) {
 
   const start = new Date(input.startDate);
   const paymentDay = input.paymentDay ?? start.getUTCDate();
-  const anchor = addMonthsPreserveDay(start, input.fromSequence - 1, paymentDay);
+  const firstOffset = resolveFirstPaymentMonthOffset(start, paymentDay);
 
   return generateRepaymentSchedule({
     ...input,
     principal: input.remainingPrincipal,
     termMonths: remainingTerm,
-    startDate: anchor,
+    startDate: start,
     gracePeriodMonths: 0,
     balloonAmount: 0,
-  }).map((row, idx) => ({ ...row, sequence: input.fromSequence + idx }));
+    firstMonthOffset: firstOffset + Math.floor(Number(input.fromSequence)) - 1,
+  }).map((row, idx) => ({ ...row, sequence: Number(input.fromSequence) + idx }));
 }
 
-export { resolvePaymentDatePolicy };
+export { resolvePaymentDatePolicy, addMonthsPreserveDay };
 export default {
   calculateMonthlyPayment,
   calculateFixedMonthlyPayment,
   generateRepaymentSchedule,
   regenerateRemainingSchedule,
+  resolveFirstPaymentMonthOffset,
 };

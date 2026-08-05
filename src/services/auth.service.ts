@@ -244,7 +244,8 @@ export class AuthService {
   }
 
   async refreshAccessToken(refreshToken: string, context: RequestContext = {}) {
-    if (!refreshToken) throw ApiError.badRequest('Refresh token is required');
+    // 401 (not 400) so clients treat missing/expired session as unauthenticated
+    if (!refreshToken) throw ApiError.unauthorized('Refresh token is required');
 
     const { payload, refresh } = await this.tokens.rotateRefreshToken(refreshToken, {
       deviceId: context.deviceId,

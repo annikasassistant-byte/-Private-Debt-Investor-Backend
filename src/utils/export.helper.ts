@@ -152,9 +152,9 @@ export function exportInvestmentStatementPdf(payload) {
 
     const generatedAt = new Date().toISOString().slice(0, 10);
 
-    doc.fontSize(18).font('Helvetica-Bold').text('Depth Capital — Investor Statement');
+    doc.fontSize(18).font('Helvetica-Bold').text('Depth Capital — Investorenabrechnung');
     doc.moveDown(0.35);
-    doc.fontSize(10).font('Helvetica').fillColor('#555555').text(`Generated: ${generatedAt}`);
+    doc.fontSize(10).font('Helvetica').fillColor('#555555').text(`Erstellt: ${generatedAt}`);
     doc.fillColor('#000000');
     doc.moveDown();
 
@@ -166,13 +166,13 @@ export function exportInvestmentStatementPdf(payload) {
     doc.moveDown(0.6);
 
     const summary = [
-      ['Investment Principal', money(investment?.principal)],
-      ['Financing Fee Rate', `${investment?.interestRate ?? 0}%`],
-      ['Current Balance', money(investment?.outstandingBalance)],
-      ['Principal Repaid', money(investment?.principalRepaid)],
-      ['Financing Fee Earned', money(investment?.interestEarned)],
+      ['Hauptsumme', money(investment?.principal)],
+      ['Finanzierungsgebühr', `${investment?.interestRate ?? 0}%`],
+      ['Aktueller Saldo', money(investment?.outstandingBalance)],
+      ['Tilgung erhalten', money(investment?.principalRepaid)],
+      ['Finanzierungsgebühr verdient', money(investment?.interestEarned)],
       ['Status', String(investment?.status || '—')],
-      ['Maturity Date', investment?.maturityDate || '—'],
+      ['Fälligkeit', investment?.maturityDate || '—'],
     ];
 
     for (const [label, value] of summary) {
@@ -181,16 +181,28 @@ export function exportInvestmentStatementPdf(payload) {
     }
 
     doc.moveDown();
-    doc.fontSize(12).font('Helvetica-Bold').text('Payment Schedule');
+    doc.fontSize(12).font('Helvetica-Bold').text('Tilgungsplan');
     doc.moveDown(0.4);
 
+    const statusDe = {
+      completed: 'Bezahlt',
+      paid: 'Bezahlt',
+      partially_paid: 'Teilweise bezahlt',
+      upcoming: 'Bevorstehend',
+      scheduled: 'Geplant',
+      future: 'Zukünftig',
+      overdue: 'Überfällig',
+      cancelled: 'Storniert',
+      pending: 'Ausstehend',
+    };
+
     const headers = [
-      'Due Date',
-      'Payment Date',
-      'Principal',
-      'Financing Fee',
-      'Total',
-      'Balance',
+      'Fälligkeit',
+      'Zahlung',
+      'Tilgung',
+      'Finanz.-gebühr',
+      'Gesamt',
+      'Restsaldo',
       'Status',
     ];
     const colWidths = [90, 90, 90, 90, 90, 90, 90];
@@ -222,7 +234,7 @@ export function exportInvestmentStatementPdf(payload) {
         money(p.interest),
         money(p.total),
         money(p.remainingBalance),
-        p.status || '',
+        statusDe[p.status] || p.status || '',
       ];
       x = startX;
       cells.forEach((cell, i) => {

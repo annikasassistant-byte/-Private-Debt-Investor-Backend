@@ -17,17 +17,25 @@ function requestContext(req: Request): RequestContext {
   };
 }
 
-function setAuthCookies(
-  res: Response,
-  tokens: { accessToken?: string; refreshToken?: string },
-): void {
+function cookieBaseOptions(): CookieOptions {
   const common: CookieOptions = {
     httpOnly: env.COOKIE_HTTP_ONLY,
     secure: env.COOKIE_SECURE,
     sameSite: env.COOKIE_SAME_SITE as CookieOptions['sameSite'],
-    domain: env.COOKIE_DOMAIN,
     path: env.COOKIE_PATH,
   };
+  // Omit Domain when unset so the browser scopes the cookie to the API host.
+  if (env.COOKIE_DOMAIN) {
+    common.domain = env.COOKIE_DOMAIN;
+  }
+  return common;
+}
+
+function setAuthCookies(
+  res: Response,
+  tokens: { accessToken?: string; refreshToken?: string },
+): void {
+  const common = cookieBaseOptions();
 
   if (tokens.accessToken) {
     res.cookie(env.ACCESS_COOKIE_NAME, tokens.accessToken, {
@@ -45,13 +53,7 @@ function setAuthCookies(
 }
 
 function clearAuthCookies(res: Response): void {
-  const common: CookieOptions = {
-    httpOnly: env.COOKIE_HTTP_ONLY,
-    secure: env.COOKIE_SECURE,
-    sameSite: env.COOKIE_SAME_SITE as CookieOptions['sameSite'],
-    domain: env.COOKIE_DOMAIN,
-    path: env.COOKIE_PATH,
-  };
+  const common = cookieBaseOptions();
   res.clearCookie(env.ACCESS_COOKIE_NAME, common);
   res.clearCookie(env.REFRESH_COOKIE_NAME, common);
 }
