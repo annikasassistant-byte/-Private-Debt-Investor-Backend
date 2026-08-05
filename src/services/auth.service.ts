@@ -3,6 +3,7 @@ import { ApiError } from '../utils/ApiError.js';
 import env from '../config/env.js';
 import logger from '../config/logger.js';
 import { redisIncr, redisDel, redisTtl, redisGet } from '../utils/redis.helper.js';
+import { isRedisReady } from '../config/redis.js';
 import { CACHE_KEYS } from '../constants/cacheKeys.js';
 import { ROLES } from '../enums/roles.js';
 import type { UserRepository } from '../repositories/user.repository.js';
@@ -562,6 +563,13 @@ export class AuthService {
   }
 
   async #assertNotBruteForced(key: string): Promise<void> {
+    // Fail closed: without Redis we cannot enforce attempt counters reliably.
+    if (!isRedisReady()) {
+      logger.warn('Auth brute-force check unavailable — Redis not ready', { key });
+      throw ApiError.serviceUnavailable(
+        'Authentication temporarily unavailable. Please try again shortly.',
+      );
+    }
     const redisKey = CACHE_KEYS.RATE_LIMIT('bruteforce', key);
     const attempts = Number((await redisGet(redisKey)) || 0);
     if (attempts >= env.RATE_LIMIT_AUTH_MAX) {
@@ -573,6 +581,11 @@ export class AuthService {
   }
 
   async #hitBruteForce(key: string): Promise<number> {
+    if (!isRedisReady()) {
+      throw ApiError.serviceUnavailable(
+        'Authentication temporarily unavailable. Please try again shortly.',
+      );
+    }
     const redisKey = CACHE_KEYS.RATE_LIMIT('bruteforce', key);
     const windowSec = Math.ceil(env.RATE_LIMIT_AUTH_WINDOW_MS / 1000);
     return redisIncr(redisKey, windowSec);

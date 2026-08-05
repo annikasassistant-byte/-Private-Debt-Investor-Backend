@@ -2,7 +2,8 @@ import { body, param, query } from 'express-validator';
 
 export const paginationQuery = [
   query('page').optional().isInt({ min: 1 }).toInt(),
-  query('limit').optional().isInt({ min: 1, max: 200 }).toInt(),
+  // Authenticated list ceiling — enough for long schedules, limits DoS fan-out.
+  query('limit').optional().isInt({ min: 1, max: 500 }).toInt(),
   query('sort').optional().isString().isLength({ max: 64 }),
   query('search').optional().isString().isLength({ max: 200 }),
 ];

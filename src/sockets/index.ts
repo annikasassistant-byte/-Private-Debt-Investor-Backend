@@ -42,11 +42,23 @@ export async function initSocketIo(httpServer, options = {}) {
             : null) ||
           (cookieToken ? decodeURIComponent(cookieToken) : null);
         if (!token) return next(new Error('Unauthorized'));
+
+        const { container } = await import('../di/container.js');
+        const blacklisted = await container.tokenService.isAccessTokenBlacklisted(token);
+        if (blacklisted) return next(new Error('Unauthorized'));
+
         const payload = verifyAccessToken(token);
         const userId = payload.sub || payload.userId;
         if (!userId) return next(new Error('Unauthorized'));
         const user = await User.findById(userId).populate('role', 'slug name');
         if (!user || user.isDeleted || !user.isActive) return next(new Error('Unauthorized'));
+        if (
+          typeof user.isAccountLocked === 'function'
+            ? user.isAccountLocked()
+            : user.isLocked && user.lockUntil && user.lockUntil > new Date()
+        ) {
+          return next(new Error('Unauthorized'));
+        }
         socket.data.userId = String(user._id);
         socket.data.roleSlug = user.role?.slug || '';
         const investor = await Investor.findOne({

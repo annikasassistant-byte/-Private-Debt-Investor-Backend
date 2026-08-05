@@ -108,15 +108,15 @@ Repositories
 MongoDB / Redis
 ```
 
-| Concern | Location |
-|--------|----------|
+| Concern          | Location                              |
+| ---------------- | ------------------------------------- |
 | Config & secrets | `src/config` (Zod-validated `env.js`) |
-| Domain logic | `src/services` |
-| Persistence | `src/repositories` + `src/models` |
-| Cross-cutting | middlewares, policies, exceptions |
-| Async work | BullMQ queues + workers |
-| Realtime | Socket.IO (`src/sockets`) |
-| Side effects | `src/events` bus |
+| Domain logic     | `src/services`                        |
+| Persistence      | `src/repositories` + `src/models`     |
+| Cross-cutting    | middlewares, policies, exceptions     |
+| Async work       | BullMQ queues + workers               |
+| Realtime         | Socket.IO (`src/sockets`)             |
+| Side effects     | `src/events` bus                      |
 
 Call `initEvents()`, `startWorkers()`, `startCronJobs()`, and `initSocket(httpServer)` from `server.js` after the HTTP server is created.
 
@@ -126,19 +126,19 @@ Call `initEvents()`, `startWorkers()`, `startCronJobs()`, and `initSocket(httpSe
 
 Copy `.env.example` → `.env`. Critical values:
 
-| Variable | Purpose |
-|----------|---------|
-| `NODE_ENV` | `development` \| `production` \| `test` \| `staging` |
-| `PORT` | HTTP port (default `5000`) |
-| `API_PREFIX` | Route prefix (default `/api/v1`) |
-| `MONGODB_URI` | Mongo connection string |
-| `REDIS_URL` | Redis for cache, sessions, BullMQ |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | ≥ 32 chars |
-| `COOKIE_SECRET` | Cookie signing (≥ 32 chars) |
-| `SMTP_*` | Transactional email |
-| `QUEUE_*` | BullMQ prefix, concurrency, retries |
-| `SOCKET_*` | Socket.IO path & CORS |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seed / createAdmin |
+| Variable                                   | Purpose                                              |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `NODE_ENV`                                 | `development` \| `production` \| `test` \| `staging` |
+| `PORT`                                     | HTTP port (default `5000`)                           |
+| `API_PREFIX`                               | Route prefix (default `/api/v1`)                     |
+| `MONGODB_URI`                              | Mongo connection string                              |
+| `REDIS_URL`                                | Redis for cache, sessions, BullMQ                    |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | ≥ 32 chars                                           |
+| `COOKIE_SECRET`                            | Cookie signing (≥ 32 chars)                          |
+| `SMTP_*`                                   | Transactional email                                  |
+| `QUEUE_*`                                  | BullMQ prefix, concurrency, retries                  |
+| `SOCKET_*`                                 | Socket.IO path & CORS                                |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD`           | Seed / createAdmin                                   |
 
 Full list and defaults live in `src/config/env.js` and `.env.example`.
 
@@ -146,16 +146,16 @@ Full list and defaults live in `src/config/env.js` and `.env.example`.
 
 ## Scripts
 
-| Script | Command |
-|--------|---------|
-| Dev (nodemon) | `npm run dev` |
-| Production start | `npm start` |
-| Seed DB | `npm run seed` |
-| Migrations (placeholder) | `npm run migrate` |
-| Create admin | `npm run create-admin` |
-| Tests | `npm test` |
-| Coverage | `npm run test:coverage` |
-| Lint | `npm run lint` |
+| Script                   | Command                 |
+| ------------------------ | ----------------------- |
+| Dev (nodemon)            | `npm run dev`           |
+| Production start         | `npm start`             |
+| Seed DB                  | `npm run seed`          |
+| Migrations (placeholder) | `npm run migrate`       |
+| Create admin             | `npm run create-admin`  |
+| Tests                    | `npm test`              |
+| Coverage                 | `npm run test:coverage` |
+| Lint                     | `npm run lint`          |
 
 Create admin with overrides:
 
@@ -176,7 +176,9 @@ node src/scripts/createAdmin.js --email=you@company.com --password='StrongPass12
 5. **Logout** → revoke refresh token, clear cookies.
 6. **Password reset / email verify / OTP** → token or OTP in Redis with TTL; emails via queue.
 
-Socket handshake accepts `auth.token` or `Authorization` Bearer (stub until wired to `verifyAccessToken`).
+Socket handshake verifies JWT, **access-token blacklist**, and account lock/active flags (same rules as HTTP auth).
+
+**Redis unavailable:** login/register/forgot/OTP brute-force counters **fail closed** (HTTP 503). Do not run production auth without Redis. Mongo account lockout still applies when Redis is up for failed passwords.
 
 ---
 
@@ -185,7 +187,8 @@ Socket handshake accepts `auth.token` or `Authorization` Bearer (stub until wire
 Used for:
 
 - Cache (`cache.service`, `redis.helper`)
-- Refresh-token / OTP / rate metadata
+- Refresh-token / OTP / rate metadata / access-token blacklist
+- Auth brute-force counters (**required** for sensitive auth paths)
 - **BullMQ** job queues (dedicated connection with `maxRetriesPerRequest: null`)
 
 Local:
@@ -246,13 +249,13 @@ Annotate routes with OpenAPI JSDoc; merge `swaggerPaths` when mounting the docs 
 
 ## Queues, cron, events & sockets
 
-| Module | Role |
-|--------|------|
-| `src/queues/*` | Email & notification producers |
-| `src/jobs/*` | Workers (`startWorkers()`) |
-| `src/cron` | Expired tokens + soft-deleted user purge |
-| `src/events` | `USER_REGISTERED`, `USER_LOGIN` listeners |
-| `src/sockets` | `initSocket(httpServer)` + event constants |
+| Module         | Role                                       |
+| -------------- | ------------------------------------------ |
+| `src/queues/*` | Email & notification producers             |
+| `src/jobs/*`   | Workers (`startWorkers()`)                 |
+| `src/cron`     | Expired tokens + soft-deleted user purge   |
+| `src/events`   | `USER_REGISTERED`, `USER_LOGIN` listeners  |
+| `src/sockets`  | `initSocket(httpServer)` + event constants |
 
 Cron examples (UTC): tokens daily `02:15`, soft-deleted users Sundays `03:30`. Retention: `SOFT_DELETE_RETENTION_DAYS` (default 30).
 

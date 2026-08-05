@@ -32,7 +32,9 @@ export function emitDomainEvent(kind, payload) {
       ? SOCKET_EVENTS.PAYMENT_UPDATED
       : kind === 'timeline'
         ? SOCKET_EVENTS.TIMELINE_UPDATED
-        : SOCKET_EVENTS.NOTIFICATION;
+        : kind === 'dashboard'
+          ? SOCKET_EVENTS.DASHBOARD_UPDATED
+          : SOCKET_EVENTS.NOTIFICATION;
 
   const investorId = payload?.investorId || payload?.investor;
   const userId = payload?.userId;
@@ -42,6 +44,13 @@ export function emitDomainEvent(kind, payload) {
   if (userId) emitToUser(String(userId), event, payload);
 }
 
+/** Broadcast payment + timeline + dashboard so clients refetch all portfolio views. */
+export function emitPortfolioRefresh(payload) {
+  emitDomainEvent('payment', payload);
+  emitDomainEvent('timeline', payload);
+  emitDomainEvent('dashboard', payload);
+}
+
 export default {
   setSocketIo,
   getSocketIo,
@@ -49,4 +58,5 @@ export default {
   emitToInvestor,
   emitToAdmins,
   emitDomainEvent,
+  emitPortfolioRefresh,
 };

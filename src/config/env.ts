@@ -6,17 +6,12 @@ import { z } from 'zod';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '../..');
 
-// App config then credentials (URL-only secrets in .env.server override .env)
+// Load `.env` first. Production secrets may override via `.env.server`.
+// `.env.example` is documentation only — never override real env with it.
 dotenv.config({ path: path.join(rootDir, '.env') });
-console.log('***********env.ts***********');
-console.log(process.env.NODE_ENV);
-
 if (process.env.NODE_ENV === 'production') {
   dotenv.config({ path: path.join(rootDir, '.env.server'), override: true });
-} else {
-  dotenv.config({ path: path.join(rootDir, '.env.example'), override: true });
 }
-console.log('***********env.ts***********');
 
 const booleanFromString = z
   .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
@@ -133,7 +128,7 @@ const envSchema = z.object({
     .string()
     .default('image/jpeg,image/png,image/webp,image/gif,application/pdf'),
 
-  SWAGGER_ENABLED: booleanFromString.default(true),
+  SWAGGER_ENABLED: booleanFromString.default(false),
   SWAGGER_PATH: z.string().default('/api-docs'),
   SWAGGER_TITLE: z.string().default('Depth Dashboard API'),
   SWAGGER_DESCRIPTION: z.string().default('REST API documentation for Depth Dashboard'),

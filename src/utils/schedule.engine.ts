@@ -1,40 +1,10 @@
-import {
-  applyPaymentDatePolicy,
-  resolvePaymentDatePolicy,
-  type PaymentDatePolicy,
-} from './businessCalendar.js';
+import { applyPaymentDatePolicy, resolvePaymentDatePolicy } from './businessCalendar.js';
 
-export type RepaymentModel = 'amortizing' | 'interest_only' | 'bullet' | 'fixed_monthly_payment';
-
-export interface ScheduleInput {
-  principal: number;
-  annualRatePercent: number;
-  termMonths: number;
-  startDate: Date | string;
-  paymentDay?: number;
-  repaymentModel?: RepaymentModel;
-  gracePeriodMonths?: number;
-  balloonAmount?: number;
-  /** Weekend/holiday handling — default next_business_day */
-  paymentDatePolicy?: PaymentDatePolicy;
-}
-
-export interface ScheduleRow {
-  sequence: number;
-  dueDate: Date;
-  contractualDueDate: Date;
-  principal: number;
-  interest: number;
-  total: number;
-  remainingBalance: number;
-  dateAdjustmentNote: string;
-}
-
-function round2(n: number) {
+function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-function addMonthsPreserveDay(date: Date, months: number, paymentDay?: number): Date {
+function addMonthsPreserveDay(date, months, paymentDay) {
   const d = new Date(date.getTime());
   const day = paymentDay ?? d.getUTCDate();
   d.setUTCMonth(d.getUTCMonth() + months, 1);
@@ -43,11 +13,7 @@ function addMonthsPreserveDay(date: Date, months: number, paymentDay?: number): 
   return d;
 }
 
-export function calculateMonthlyPayment(
-  principal: number,
-  annualRatePercent: number,
-  termMonths: number,
-): number {
+export function calculateMonthlyPayment(principal, annualRatePercent, termMonths) {
   if (termMonths <= 0 || principal <= 0) return 0;
   const r = annualRatePercent / 100 / 12;
   if (r === 0) return round2(principal / termMonths);
@@ -58,32 +24,22 @@ export function calculateMonthlyPayment(
 /**
  * Fixed monthly payment: total = principal + flat financing fee,
  * split evenly. Fee is principal * feePercent / 100 (not compound).
+ * Does not support grace or balloon — callers must reject those fields.
  */
-export function calculateFixedMonthlyPayment(
-  principal: number,
-  feePercent: number,
-  termMonths: number,
-): number {
+export function calculateFixedMonthlyPayment(principal, feePercent, termMonths) {
   if (termMonths <= 0 || principal <= 0) return 0;
   const totalFee = round2(principal * (feePercent / 100));
   return round2((principal + totalFee) / termMonths);
 }
 
-function buildFixedMonthlyRows(
-  principal: number,
-  feePercent: number,
-  termMonths: number,
-  start: Date,
-  paymentDay: number,
-  policy: ReturnType<typeof resolvePaymentDatePolicy>,
-): ScheduleRow[] {
+function buildFixedMonthlyRows(principal, feePercent, termMonths, start, paymentDay, policy) {
   const totalFee = round2(principal * (feePercent / 100));
   const totalRepayment = round2(principal + totalFee);
   const baseMonthly = round2(totalRepayment / termMonths);
   const baseFee = round2(totalFee / termMonths);
   const basePrincipal = round2(baseMonthly - baseFee);
 
-  const rows: ScheduleRow[] = [];
+  const rows = [];
   let remainingPrincipal = principal;
   let remainingFee = totalFee;
 
@@ -92,9 +48,9 @@ function buildFixedMonthlyRows(
     const adjusted = applyPaymentDatePolicy(contractual, policy);
     const isLast = i === termMonths - 1;
 
-    let principalPart: number;
-    let interest: number;
-    let total: number;
+    let principalPart;
+    let interest;
+    let total;
 
     if (isLast) {
       principalPart = round2(remainingPrincipal);
@@ -129,7 +85,31 @@ function buildFixedMonthlyRows(
   return rows;
 }
 
-export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
+/**
+ * Bullet: single maturity payment of principal + simple accrued financing fee.
+ * Distinct from interest_only (which charges fee every period and principal at end).
+ */
+function buildBulletRows(principal, annualRate, termMonths, start, paymentDay, policy) {
+  const monthlyRate = annualRate / 100 / 12;
+  const contractual = addMonthsPreserveDay(start, termMonths, paymentDay);
+  const adjusted = applyPaymentDatePolicy(contractual, policy);
+  const interest = round2(principal * monthlyRate * termMonths);
+  const principalPart = round2(principal);
+  return [
+    {
+      sequence: 1,
+      dueDate: adjusted.dueDate,
+      contractualDueDate: adjusted.contractualDueDate,
+      principal: principalPart,
+      interest,
+      total: round2(principalPart + interest),
+      remainingBalance: 0,
+      dateAdjustmentNote: adjusted.note,
+    },
+  ];
+}
+
+export function generateRepaymentSchedule(input) {
   const principal = Number(input.principal);
   const annualRate = Number(input.annualRatePercent);
   const termMonths = Math.floor(Number(input.termMonths));
@@ -146,8 +126,12 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
     return buildFixedMonthlyRows(principal, annualRate, termMonths, start, paymentDay, policy);
   }
 
+  if (model === 'bullet') {
+    return buildBulletRows(principal, annualRate, termMonths, start, paymentDay, policy);
+  }
+
   const monthlyRate = annualRate / 100 / 12;
-  const rows: ScheduleRow[] = [];
+  const rows = [];
   let balance = principal;
   const amortTerm = Math.max(1, termMonths - grace);
   const pmt =
@@ -164,7 +148,7 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
     const inGrace = i < grace;
     const isLast = i === termMonths - 1;
 
-    if (model === 'interest_only' || model === 'bullet') {
+    if (model === 'interest_only') {
       principalPart = isLast ? round2(balance) : 0;
       total = round2(interest + principalPart);
     } else if (inGrace) {
@@ -173,9 +157,6 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
     } else if (isLast) {
       principalPart = round2(balance);
       total = round2(principalPart + interest);
-      if (balloon > 0) {
-        // balloon already excluded from amortizing PMT; ensure last clears
-      }
     } else {
       principalPart = round2(Math.min(balance, Math.max(0, pmt - interest)));
       total = round2(principalPart + interest);
@@ -203,9 +184,7 @@ export function generateRepaymentSchedule(input: ScheduleInput): ScheduleRow[] {
   return rows;
 }
 
-export function regenerateRemainingSchedule(
-  input: ScheduleInput & { remainingPrincipal: number; fromSequence: number },
-): ScheduleRow[] {
+export function regenerateRemainingSchedule(input) {
   const remainingTerm = Math.max(
     0,
     Math.floor(Number(input.termMonths)) - Math.floor(Number(input.fromSequence)) + 1,
@@ -222,6 +201,7 @@ export function regenerateRemainingSchedule(
     termMonths: remainingTerm,
     startDate: anchor,
     gracePeriodMonths: 0,
+    balloonAmount: 0,
   }).map((row, idx) => ({ ...row, sequence: input.fromSequence + idx }));
 }
 

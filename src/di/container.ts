@@ -186,6 +186,9 @@ export class Container {
           this.userRepository,
           this.roleRepository,
           this.investmentRepository,
+          this.paymentRepository,
+          this.loanRepository,
+          this.timelineRepository,
           this.auditRepository,
         ),
     );

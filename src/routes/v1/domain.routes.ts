@@ -6,6 +6,7 @@ import { validate } from '../../middlewares/validate.middleware.js';
 import { attachInvestorProfile } from '../../middlewares/ownership.middleware.js';
 import { uploadSingle } from '../../middlewares/upload.middleware.js';
 import { validateMagicBytes } from '../../middlewares/magicBytes.middleware.js';
+import { uploadLimiter } from '../../middlewares/rateLimiter.middleware.js';
 import { ROLES } from '../../enums/roles.js';
 import {
   paginationQuery,
@@ -88,6 +89,7 @@ router.get('/reports', ...anyAuth, paginationQuery, validate, ctrl.listReports);
 router.post(
   '/reports',
   ...admin,
+  uploadLimiter,
   uploadSingle('file'),
   validateMagicBytes('file'),
   createReportValidator,
@@ -104,6 +106,7 @@ router.get('/contracts', ...anyAuth, paginationQuery, validate, ctrl.listContrac
 router.post(
   '/contracts',
   ...admin,
+  uploadLimiter,
   uploadSingle('file'),
   validateMagicBytes('file'),
   createContractValidator,

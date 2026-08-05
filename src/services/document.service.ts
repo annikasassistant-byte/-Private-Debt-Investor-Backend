@@ -285,6 +285,7 @@ export class DashboardService {
 
   async adminStats() {
     const soft = { isDeleted: { $ne: true } };
+    const activeInvestmentIds = await this.investments.model.find(soft).distinct('_id');
     const [totalInvestors, totalInvestments, invAgg, payAgg] = await Promise.all([
       this.investors.model.countDocuments({ status: 'active', ...soft }),
       this.investments.model.countDocuments(soft),
@@ -301,7 +302,12 @@ export class DashboardService {
         },
       ]),
       this.payments.model.aggregate([
-        { $match: soft },
+        {
+          $match: {
+            ...soft,
+            investment: { $in: activeInvestmentIds },
+          },
+        },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
     ]);

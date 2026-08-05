@@ -2,11 +2,25 @@ import { ApiError } from '../utils/ApiError.js';
 import { ROLES } from '../enums/roles.js';
 import { INVESTOR_STATUS } from '../enums/domain.js';
 import { mapInvestor } from '../utils/domain.mappers.js';
-import type { InvestorRepository } from '../repositories/domain.repositories.js';
+import type {
+  InvestorRepository,
+  InvestmentRepository,
+  PaymentRepository,
+  LoanRepository,
+  TimelineRepository,
+} from '../repositories/domain.repositories.js';
 import type { UserRepository } from '../repositories/user.repository.js';
 import type { RoleRepository } from '../repositories/role.repository.js';
 import type { AuditRepository } from '../repositories/audit.repository.js';
-import type { InvestmentRepository } from '../repositories/domain.repositories.js';
+import { emitPortfolioRefresh } from '../sockets/emitter.js';
+
+function softDeleteSet(actorId?: string) {
+  return {
+    isDeleted: true,
+    deletedAt: new Date(),
+    ...(actorId ? { deletedBy: actorId, updatedBy: actorId } : {}),
+  };
+}
 
 export class InvestorService {
   constructor(
@@ -14,6 +28,9 @@ export class InvestorService {
     private users: UserRepository,
     private roles: RoleRepository,
     private investments: InvestmentRepository,
+    private payments: PaymentRepository,
+    private loans: LoanRepository,
+    private timeline: TimelineRepository,
     private audit: AuditRepository,
   ) {}
 
@@ -67,7 +84,6 @@ export class InvestorService {
 
     let role = await this.roles.findBySlug(ROLES.INVESTOR);
     if (!role) {
-      // Self-heal: ensure system investor role exists without requiring a manual re-seed mid-request
       role = await this.roles.create({
         name: 'Investor',
         slug: ROLES.INVESTOR,
@@ -158,16 +174,57 @@ export class InvestorService {
     return mapInvestor(doc);
   }
 
+  /**
+   * Soft-delete investor + linked user and cascade soft-delete portfolio rows
+   * (investments, payments, loans, timeline) so no active orphans remain.
+   */
   async remove(id: string, actorId?: string) {
-    const doc = await this.investors.softDelete(id, actorId);
+    const doc = await this.investors.findById(id);
     if (!doc) throw ApiError.notFound('Investor not found');
-    if (doc.user) await this.users.softDelete(doc.user, actorId);
+
+    const cascade = softDeleteSet(actorId);
+    const investmentIds = (
+      await this.investments.model
+        .find({ investor: id, isDeleted: { $ne: true } })
+        .select('_id')
+        .lean()
+    ).map((d: any) => d._id);
+
+    await Promise.all([
+      investmentIds.length
+        ? this.payments.model.updateMany(
+            { investment: { $in: investmentIds }, isDeleted: { $ne: true } },
+            { $set: cascade },
+          )
+        : Promise.resolve(),
+      investmentIds.length
+        ? this.timeline.model.updateMany(
+            { investment: { $in: investmentIds }, isDeleted: { $ne: true } },
+            { $set: cascade },
+          )
+        : Promise.resolve(),
+      this.loans.model.updateMany({ investor: id, isDeleted: { $ne: true } }, { $set: cascade }),
+      this.investments.model.updateMany(
+        { investor: id, isDeleted: { $ne: true } },
+        { $set: cascade },
+      ),
+      this.timeline.model.updateMany({ investor: id, isDeleted: { $ne: true } }, { $set: cascade }),
+      this.investors.softDelete(id, actorId),
+      doc.user ? this.users.softDelete(doc.user, actorId) : Promise.resolve(),
+    ]);
+
     await this.audit?.log({
       actor: actorId,
       action: 'investor.delete',
       resource: 'investor',
       resourceId: id,
     });
+
+    emitPortfolioRefresh({
+      investorId: id,
+      type: 'investor.delete',
+    });
+
     return { success: true };
   }
 

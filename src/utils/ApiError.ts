@@ -51,6 +51,10 @@ export class ApiError extends AppException {
     return new ApiError(message, HTTP_STATUS.TOO_MANY_REQUESTS, ERROR_CODES.TOO_MANY_REQUESTS);
   }
 
+  static serviceUnavailable(message = 'Service temporarily unavailable'): ApiError {
+    return new ApiError(message, HTTP_STATUS.SERVICE_UNAVAILABLE, ERROR_CODES.SERVICE_UNAVAILABLE);
+  }
+
   static internal(message = 'Internal server error', isOperational = false): ApiError {
     return new ApiError(
       message,

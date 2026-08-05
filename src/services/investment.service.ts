@@ -5,7 +5,6 @@ import {
   calculateMonthlyPayment,
   generateRepaymentSchedule,
   regenerateRemainingSchedule,
-  type RepaymentModel,
 } from '../utils/schedule.engine.js';
 import { resolvePaymentDatePolicy } from '../utils/businessCalendar.js';
 import env from '../config/env.js';
@@ -19,7 +18,8 @@ import type {
 } from '../repositories/domain.repositories.js';
 import type { AuditRepository } from '../repositories/audit.repository.js';
 import type { InvestorService } from './investor.service.js';
-import { emitDomainEvent } from '../sockets/emitter.js';
+import { emitPortfolioRefresh } from '../sockets/emitter.js';
+import { TimelineCopy } from '../utils/timeline.i18n.js';
 
 function startOfDay(d = new Date()) {
   const x = new Date(d);
@@ -37,6 +37,28 @@ function clampPaymentDay(day: number) {
   return Math.min(31, Math.max(1, Math.floor(Number(day) || 15)));
 }
 
+function softDeleteSet(actorId?: string) {
+  return {
+    isDeleted: true,
+    deletedAt: new Date(),
+    ...(actorId ? { deletedBy: actorId, updatedBy: actorId } : {}),
+  };
+}
+
+/** Fixed monthly payment does not support grace periods or balloon amounts. */
+function assertFixedMonthlyCompatible(
+  model: string,
+  gracePeriodMonths: number,
+  balloonAmount: number,
+) {
+  if (model !== 'fixed_monthly_payment') return;
+  if (gracePeriodMonths > 0 || balloonAmount > 0) {
+    throw ApiError.badRequest(
+      'fixed_monthly_payment does not support gracePeriodMonths or balloonAmount',
+    );
+  }
+}
+
 function resolveMonthlyPaymentAmount(
   principal: number,
   rate: number,
@@ -45,6 +67,16 @@ function resolveMonthlyPaymentAmount(
 ) {
   if (repaymentModel === 'fixed_monthly_payment') {
     return calculateFixedMonthlyPayment(principal, rate, termMonths);
+  }
+  if (repaymentModel === 'bullet') {
+    // Single maturity payment: principal + simple accrued fee over term
+    const monthlyRate = rate / 100 / 12;
+    return (
+      Math.round((principal + principal * monthlyRate * termMonths + Number.EPSILON) * 100) / 100
+    );
+  }
+  if (repaymentModel === 'interest_only') {
+    return Math.round((principal * (rate / 100 / 12) + Number.EPSILON) * 100) / 100;
   }
   return calculateMonthlyPayment(principal, rate, termMonths);
 }
@@ -100,7 +132,10 @@ export class InvestmentService {
       throw ApiError.badRequest('Invalid principal, interestRate or termMonths');
     }
 
-    const repaymentModel = (input.repaymentModel || 'amortizing') as RepaymentModel;
+    const repaymentModel = input.repaymentModel || 'amortizing';
+    const gracePeriodMonths = Number(input.gracePeriodMonths || 0);
+    const balloonAmount = Number(input.balloonAmount || 0);
+    assertFixedMonthlyCompatible(repaymentModel, gracePeriodMonths, balloonAmount);
     const monthlyPayment = resolveMonthlyPaymentAmount(
       principal,
       interestRate,
@@ -125,8 +160,8 @@ export class InvestmentService {
         maturityDate,
         paymentDay: clampPaymentDay(paymentDay),
         repaymentModel,
-        gracePeriodMonths: Number(input.gracePeriodMonths || 0),
-        balloonAmount: Number(input.balloonAmount || 0),
+        gracePeriodMonths,
+        balloonAmount,
         notes: input.notes || '',
       },
       { actor: actorId },
@@ -147,10 +182,11 @@ export class InvestmentService {
         },
         { actor: actorId },
       );
+      const loanCopy = TimelineCopy.loanFunded(investor.name);
       await this.timeline.create({
         type: TIMELINE_EVENT_TYPE.LOAN_FUNDED,
-        title: 'Loan Funded',
-        description: `Loan funded for ${investor.name}`,
+        title: loanCopy.title,
+        description: loanCopy.description,
         date: startDate,
         amount: principal,
         status: 'completed',
@@ -159,10 +195,11 @@ export class InvestmentService {
       });
     }
 
+    const startedCopy = TimelineCopy.investmentStarted(principal);
     await this.timeline.create({
       type: TIMELINE_EVENT_TYPE.INVESTMENT_STARTED,
-      title: 'Investment Started',
-      description: `Investment of ${principal} started`,
+      title: startedCopy.title,
+      description: startedCopy.description,
       date: startDate,
       amount: principal,
       status: 'completed',
@@ -176,6 +213,12 @@ export class InvestmentService {
       action: 'investment.create',
       resource: 'investment',
       resourceId: investment._id,
+    });
+
+    emitPortfolioRefresh({
+      investorId: String(investor._id),
+      investmentId: String(investment._id),
+      type: 'investment.create',
     });
 
     return this.getById(String(investment._id));
@@ -205,6 +248,19 @@ export class InvestmentService {
 
     if (update.paymentDay !== undefined) {
       update.paymentDay = clampPaymentDay(Number(update.paymentDay));
+    }
+
+    {
+      const model = String(update.repaymentModel ?? existing.repaymentModel);
+      const grace = Number(
+        update.gracePeriodMonths !== undefined
+          ? update.gracePeriodMonths
+          : existing.gracePeriodMonths || 0,
+      );
+      const balloon = Number(
+        update.balloonAmount !== undefined ? update.balloonAmount : existing.balloonAmount || 0,
+      );
+      assertFixedMonthlyCompatible(model, grace, balloon);
     }
 
     if (
@@ -238,15 +294,59 @@ export class InvestmentService {
       resource: 'investment',
       resourceId: id,
     });
+
+    emitPortfolioRefresh({
+      investorId: String(existing.investor),
+      investmentId: id,
+      type: 'investment.update',
+    });
+
     return this.getById(id);
   }
 
   async remove(id: string, actorId?: string) {
     const doc = await this.investments.findById(id);
     if (!doc) throw ApiError.notFound('Investment not found');
-    await this.investments.softDelete(id, actorId);
-    await this.investorService.syncTotals(String(doc.investor));
+    const investorId = String(doc.investor);
+    const cascade = softDeleteSet(actorId);
+
+    // Cascade soft-delete so schedules, timeline, and loans never orphan
+    await Promise.all([
+      this.payments.model.updateMany(
+        { investment: id, isDeleted: { $ne: true } },
+        { $set: cascade },
+      ),
+      this.timeline.model.updateMany(
+        { investment: id, isDeleted: { $ne: true } },
+        { $set: cascade },
+      ),
+      this.loans.model.updateMany({ investment: id, isDeleted: { $ne: true } }, { $set: cascade }),
+      this.investments.softDelete(id, actorId),
+    ]);
+
+    await this.investorService.syncTotals(investorId);
+    await this.audit?.log({
+      actor: actorId,
+      action: 'investment.delete',
+      resource: 'investment',
+      resourceId: id,
+    });
+
+    emitPortfolioRefresh({
+      investorId,
+      investmentId: id,
+      type: 'investment.delete',
+    });
+
     return { success: true };
+  }
+
+  /** Active (non-deleted) investment ids — used to keep payments/timeline consistent. */
+  private async activeInvestmentIds(investorScopeId?: string | null): Promise<unknown[]> {
+    const filter: Record<string, unknown> = {};
+    if (investorScopeId) filter.investor = investorScopeId;
+    const docs = await this.investments.model.find(filter).select('_id').lean();
+    return docs.map((d: any) => d._id);
   }
 
   async generateSchedule(investmentId: string, _actorId?: string) {
@@ -305,21 +405,29 @@ export class InvestmentService {
     if (!investment) throw ApiError.notFound('Investment not found');
 
     const existing = await this.payments.findByInvestment(investmentId);
-    const paid = existing.data.filter((p: any) =>
-      ['completed', 'partially_paid'].includes(p.status),
-    );
+    const paid = existing.data
+      .filter((p: any) => ['completed', 'partially_paid'].includes(p.status))
+      .sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0));
     const lastPaidSeq = paid.reduce((m: number, p: any) => Math.max(m, p.sequence || 0), 0);
-    const remainingPrincipal =
-      paid.length > 0
-        ? paid[paid.length - 1].remainingBalance
-        : investment.outstandingBalance || investment.principal;
+    // Always use live outstanding balance — schedule remainingBalance on a
+    // partially_paid row assumes the installment was paid in full.
+    const remainingPrincipalNum = Number(investment.outstandingBalance);
+    const safeRemaining =
+      Number.isFinite(remainingPrincipalNum) && remainingPrincipalNum >= 0
+        ? remainingPrincipalNum
+        : Number(investment.principal) || 0;
 
     await this.payments.deleteUnpaidByInvestment(investmentId);
 
     const fromSequence = lastPaidSeq + 1;
-    const remainingPrincipalNum = Number(remainingPrincipal) || 0;
-    if (remainingPrincipalNum <= 0) {
+    if (safeRemaining <= 0) {
+      await this.syncScheduleTimelineEvents(investment, []);
       await this.refreshInvestmentPaymentMeta(investmentId);
+      emitPortfolioRefresh({
+        investorId: String(investment.investor),
+        investmentId,
+        type: 'schedule.regenerate',
+      });
       return this.listPayments(investmentId);
     }
 
@@ -329,13 +437,13 @@ export class InvestmentService {
       const monthly = Number(investment.monthlyPayment) || 0;
       remainingTerm =
         monthly > 0
-          ? Math.max(1, Math.ceil(remainingPrincipalNum / monthly))
+          ? Math.max(1, Math.ceil(safeRemaining / monthly))
           : Math.max(1, Number(investment.termMonths) || 1);
     }
 
     const rows = regenerateRemainingSchedule({
-      principal: remainingPrincipalNum,
-      remainingPrincipal: remainingPrincipalNum,
+      principal: safeRemaining,
+      remainingPrincipal: safeRemaining,
       fromSequence,
       annualRatePercent: investment.interestRate,
       termMonths: lastPaidSeq + remainingTerm,
@@ -375,8 +483,15 @@ export class InvestmentService {
     if (docs.length) {
       const inserted = await this.payments.model.insertMany(docs);
       await this.syncScheduleTimelineEvents(investment, inserted);
+    } else {
+      await this.syncScheduleTimelineEvents(investment, []);
     }
     await this.refreshInvestmentPaymentMeta(investmentId);
+    emitPortfolioRefresh({
+      investorId: String(investment.investor),
+      investmentId,
+      type: 'schedule.regenerate',
+    });
     return this.listPayments(investmentId);
   }
 
@@ -408,26 +523,41 @@ export class InvestmentService {
       .map((p) => {
         let type: string = TIMELINE_EVENT_TYPE.SCHEDULED_PAYMENT;
         let status: 'upcoming' | 'future' | 'overdue' = 'future';
-        let title = `Installment #${p.sequence}`;
+        const note = p.dateAdjustmentNote || '';
+        let copy = TimelineCopy.installment(
+          p.sequence,
+          Number(p.principal),
+          Number(p.interest),
+          note,
+        );
 
         if (p.status === PAYMENT_STATUS.UPCOMING) {
           type = TIMELINE_EVENT_TYPE.UPCOMING_PAYMENT;
           status = 'upcoming';
-          title = 'Next Payment Due';
+          copy = TimelineCopy.nextPayment(Number(p.principal), Number(p.interest), note);
         } else if (p.status === PAYMENT_STATUS.OVERDUE) {
           type = TIMELINE_EVENT_TYPE.OVERDUE_PAYMENT;
           status = 'overdue';
-          title = `Overdue · Installment #${p.sequence}`;
-        } else if (p.status === PAYMENT_STATUS.SCHEDULED) {
-          status = 'upcoming';
-          title = `Scheduled · Installment #${p.sequence}`;
+          copy = TimelineCopy.overdueInstallment(
+            p.sequence,
+            Number(p.principal),
+            Number(p.interest),
+            note,
+          );
+        } else if (p.status === PAYMENT_STATUS.SCHEDULED || p.status === PAYMENT_STATUS.FUTURE) {
+          status = p.status === PAYMENT_STATUS.SCHEDULED ? 'upcoming' : 'future';
+          copy = TimelineCopy.scheduledInstallment(
+            p.sequence,
+            Number(p.principal),
+            Number(p.interest),
+            note,
+          );
         }
 
-        const note = p.dateAdjustmentNote ? ` ${p.dateAdjustmentNote}` : '';
         return {
           type,
-          title,
-          description: `Principal ${p.principal} · Financing Fee ${p.interest}.${note}`,
+          title: copy.title,
+          description: copy.description,
           date: p.dueDate,
           amount: p.total,
           status,
@@ -454,15 +584,34 @@ export class InvestmentService {
   }
 
   async listAllPayments(query: Record<string, any> = {}, investorScopeId?: string | null) {
-    const filter: Record<string, unknown> = {};
+    const activeIds = await this.activeInvestmentIds(investorScopeId);
+    if (!activeIds.length) {
+      return {
+        data: [],
+        meta: { page: 1, limit: 0, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+      };
+    }
+
+    const filter: Record<string, unknown> = {
+      investment: { $in: activeIds },
+    };
     if (investorScopeId) filter.investor = investorScopeId;
     else if (query.investorId) filter.investor = query.investorId;
-    if (query.investmentId) filter.investment = query.investmentId;
+    if (query.investmentId) {
+      const wanted = String(query.investmentId);
+      if (!activeIds.some((id) => String(id) === wanted)) {
+        return {
+          data: [],
+          meta: { page: 1, limit: 0, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        };
+      }
+      filter.investment = query.investmentId;
+    }
     if (query.status) filter.status = query.status;
 
     const result = await this.payments.findMany(filter, {
       page: query.page,
-      limit: query.limit || 50,
+      limit: query.limit || 500,
       sort: query.sort || 'dueDate',
       lean: true,
     });
@@ -526,10 +675,11 @@ export class InvestmentService {
       await this.investorService.syncTotals(String(investment.investor));
 
       if (outstandingBalance <= 0) {
+        const closed = TimelineCopy.loanFullyRepaid();
         await this.timeline.create({
           type: TIMELINE_EVENT_TYPE.LOAN_CLOSED,
-          title: 'Loan Fully Repaid',
-          description: 'Investment fully repaid',
+          title: closed.title,
+          description: closed.description,
           date: paymentDate,
           amount: amountPaid,
           status: 'completed',
@@ -539,12 +689,15 @@ export class InvestmentService {
       }
     }
 
+    const payCopy = fullyPaid
+      ? TimelineCopy.paymentCompleted(payment.sequence)
+      : TimelineCopy.partialPayment(payment.sequence);
     await this.timeline.create({
       type: fullyPaid
         ? TIMELINE_EVENT_TYPE.COMPLETED_PAYMENT
         : TIMELINE_EVENT_TYPE.INTEREST_PAYMENT,
-      title: fullyPaid ? 'Payment Completed' : 'Partial Payment Received',
-      description: `Payment #${payment.sequence} ${fullyPaid ? 'completed' : 'partially paid'}`,
+      title: payCopy.title,
+      description: payCopy.description,
       date: paymentDate,
       amount: amountPaid,
       status: 'completed',
@@ -557,6 +710,11 @@ export class InvestmentService {
       await this.regenerateSchedule(String(payment.investment), actorId);
     } else {
       await this.refreshInvestmentPaymentMeta(String(payment.investment));
+      const inv = await this.investments.findById(String(payment.investment));
+      if (inv) {
+        const remaining = await this.payments.findByInvestment(String(payment.investment));
+        await this.syncScheduleTimelineEvents(inv, remaining.data);
+      }
     }
 
     await this.audit?.log({
@@ -567,17 +725,12 @@ export class InvestmentService {
       meta: { amountPaid, status },
     });
 
-    emitDomainEvent('payment', {
+    emitPortfolioRefresh({
       investorId: String(payment.investor),
       investmentId: String(payment.investment),
       paymentId,
       status,
       amountPaid,
-    });
-    emitDomainEvent('timeline', {
-      investorId: String(payment.investor),
-      investmentId: String(payment.investment),
-      type: fullyPaid ? 'completed_payment' : 'interest_payment',
     });
 
     return mapPayment(await this.payments.findById(paymentId));
@@ -593,12 +746,24 @@ export class InvestmentService {
       status: PAYMENT_STATUS.CANCELLED,
       notes: input.notes || payment.notes || 'Cancelled by administrator',
     });
-    await this.refreshInvestmentPaymentMeta(String(payment.investment));
+    const investmentId = String(payment.investment);
+    await this.refreshInvestmentPaymentMeta(investmentId);
+    const investment = await this.investments.findById(investmentId);
+    if (investment) {
+      const remaining = await this.payments.findByInvestment(investmentId);
+      await this.syncScheduleTimelineEvents(investment, remaining.data);
+    }
     await this.audit?.log({
       actor: actorId,
       action: 'payment.cancel',
       resource: 'payment',
       resourceId: paymentId,
+    });
+    emitPortfolioRefresh({
+      investorId: String(payment.investor),
+      investmentId,
+      paymentId,
+      type: 'payment.cancel',
     });
     return mapPayment(await this.payments.findById(paymentId));
   }
@@ -646,13 +811,17 @@ export class InvestmentService {
       status: newOutstanding <= 0 ? INVESTMENT_STATUS.CLOSED : investment.status,
     });
 
+    const earlyCopy =
+      newOutstanding <= 0
+        ? TimelineCopy.loanFullyRepaid()
+        : TimelineCopy.earlyRepayment(applyAmount);
     await this.timeline.create({
       type:
         newOutstanding <= 0
           ? TIMELINE_EVENT_TYPE.LOAN_CLOSED
           : TIMELINE_EVENT_TYPE.COMPLETED_PAYMENT,
-      title: newOutstanding <= 0 ? 'Loan Fully Repaid' : 'Early Repayment',
-      description: `Early repayment of ${applyAmount}`,
+      title: earlyCopy.title,
+      description: earlyCopy.description,
       date: paymentDate,
       amount: applyAmount,
       status: 'completed',
@@ -665,6 +834,7 @@ export class InvestmentService {
     } else {
       await this.payments.deleteUnpaidByInvestment(investmentId);
       await this.refreshInvestmentPaymentMeta(investmentId);
+      await this.syncScheduleTimelineEvents(investment, []);
     }
 
     await this.investorService.syncTotals(String(investment.investor));
@@ -676,16 +846,11 @@ export class InvestmentService {
       meta: { amount: applyAmount },
     });
 
-    emitDomainEvent('payment', {
+    emitPortfolioRefresh({
       investorId: String(investment.investor),
       investmentId,
       amount: applyAmount,
       type: 'early_repayment',
-    });
-    emitDomainEvent('timeline', {
-      investorId: String(investment.investor),
-      investmentId,
-      type: newOutstanding <= 0 ? 'loan_closed' : 'completed_payment',
     });
 
     return this.getById(investmentId);
@@ -766,10 +931,11 @@ export class InvestmentService {
       },
       { actor: actorId },
     );
+    const loanCopy = TimelineCopy.loanFunded(input.borrower);
     await this.timeline.create({
       type: TIMELINE_EVENT_TYPE.LOAN_FUNDED,
-      title: 'Loan Funded',
-      description: `Loan funded for ${input.borrower}`,
+      title: loanCopy.title,
+      description: loanCopy.description,
       date: loan.fundedAt || new Date(),
       amount: loan.amount,
       status: 'completed',
@@ -781,6 +947,11 @@ export class InvestmentService {
       action: 'loan.create',
       resource: 'loan',
       resourceId: loan._id,
+    });
+    emitPortfolioRefresh({
+      investorId: String(investment.investor),
+      investmentId: String(investment._id),
+      type: 'loan.create',
     });
     return mapLoan(loan);
   }
@@ -812,16 +983,62 @@ export class InvestmentService {
   }
 
   async listTimeline(query: Record<string, any> = {}, investorScopeId?: string | null) {
-    const filter: Record<string, unknown> = {};
+    const activeIds = await this.activeInvestmentIds(investorScopeId);
+    if (!activeIds.length) {
+      return {
+        data: [],
+        meta: { page: 1, limit: 0, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+      };
+    }
+
+    const filter: Record<string, unknown> = {
+      investment: { $in: activeIds },
+    };
     if (investorScopeId) filter.investor = investorScopeId;
     else if (query.investorId) filter.investor = query.investorId;
-    if (query.investmentId) filter.investment = query.investmentId;
+    if (query.investmentId) {
+      const wanted = String(query.investmentId);
+      if (!activeIds.some((id) => String(id) === wanted)) {
+        return {
+          data: [],
+          meta: { page: 1, limit: 0, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        };
+      }
+      filter.investment = query.investmentId;
+    }
+
+    // Chronological: investment start → loan → schedule → paid → closed
     const result = await this.timeline.findMany(filter, {
       page: query.page,
-      limit: query.limit || 50,
-      sort: query.sort || '-date',
+      limit: query.limit || 500,
+      sort: query.sort || 'date',
       lean: true,
     });
-    return { data: result.data.map(mapTimeline), meta: result.meta || result.pagination };
+
+    const data = result.data
+      .map(mapTimeline)
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        const byDate = String(a.date).localeCompare(String(b.date));
+        if (byDate !== 0) return byDate;
+        return timelineTypeRank(a.type) - timelineTypeRank(b.type);
+      });
+
+    return { data, meta: result.meta || result.pagination };
   }
+}
+
+/** Stable secondary order when timestamps collide (e.g. start + loan same day). */
+function timelineTypeRank(type: string): number {
+  const order: Record<string, number> = {
+    investment_started: 0,
+    loan_funded: 1,
+    scheduled_payment: 2,
+    upcoming_payment: 3,
+    overdue_payment: 4,
+    interest_payment: 5,
+    completed_payment: 6,
+    loan_closed: 7,
+  };
+  return order[type] ?? 50;
 }

@@ -4,15 +4,12 @@
  * or keep the contractual calendar date with an explanatory note.
  */
 
-export type PaymentDatePolicy = 'next_business_day' | 'keep_contractual';
-
 /** UTC YYYY-MM-DD */
-export function toUtcDateKey(d: Date): string {
+export function toUtcDateKey(d) {
   return d.toISOString().slice(0, 10);
 }
 
-function easterSundayUtc(year: number): Date {
-  // Anonymous Gregorian algorithm
+function easterSundayUtc(year) {
   const a = year % 19;
   const b = Math.floor(year / 100);
   const c = year % 100;
@@ -30,14 +27,14 @@ function easterSundayUtc(year: number): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function addUtcDays(date: Date, days: number): Date {
+function addUtcDays(date, days) {
   const d = new Date(date.getTime());
   d.setUTCDate(d.getUTCDate() + days);
   return d;
 }
 
 /** Fixed + common EU/DE public holidays for a year (UTC dates). */
-export function holidaysForYear(year: number): string[] {
+export function holidaysForYear(year) {
   const easter = easterSundayUtc(year);
   const goodFriday = addUtcDays(easter, -2);
   const easterMonday = addUtcDays(easter, 1);
@@ -46,7 +43,7 @@ export function holidaysForYear(year: number): string[] {
   const fixed = [
     `${year}-01-01`,
     `${year}-05-01`,
-    `${year}-10-03`, // German Unity Day (common for DE private debt)
+    `${year}-10-03`,
     `${year}-12-25`,
     `${year}-12-26`,
   ];
@@ -59,24 +56,24 @@ export function holidaysForYear(year: number): string[] {
   ];
 }
 
-export function buildHolidaySet(fromYear: number, toYear: number): Set<string> {
-  const set = new Set<string>();
+export function buildHolidaySet(fromYear, toYear) {
+  const set = new Set();
   for (let y = fromYear; y <= toYear; y += 1) {
     for (const h of holidaysForYear(y)) set.add(h);
   }
   return set;
 }
 
-export function isWeekendUtc(date: Date): boolean {
+export function isWeekendUtc(date) {
   const day = date.getUTCDay();
   return day === 0 || day === 6;
 }
 
-export function isNonBusinessDay(date: Date, holidays: Set<string>): boolean {
+export function isNonBusinessDay(date, holidays) {
   return isWeekendUtc(date) || holidays.has(toUtcDateKey(date));
 }
 
-export function nextBusinessDay(date: Date, holidays: Set<string>): Date {
+export function nextBusinessDay(date, holidays) {
   let d = new Date(date.getTime());
   while (isNonBusinessDay(d, holidays)) {
     d = addUtcDays(d, 1);
@@ -84,24 +81,10 @@ export function nextBusinessDay(date: Date, holidays: Set<string>): Date {
   return d;
 }
 
-export type AdjustedPaymentDate = {
-  dueDate: Date;
-  contractualDueDate: Date;
-  adjusted: boolean;
-  note: string;
-};
-
 /**
  * Apply payment date policy for weekends / public holidays.
- * @param contractual Due date before business-day adjustment
- * @param policy next_business_day | keep_contractual
- * @param holidays Set of YYYY-MM-DD keys
  */
-export function applyPaymentDatePolicy(
-  contractual: Date,
-  policy: PaymentDatePolicy = 'next_business_day',
-  holidays?: Set<string>,
-): AdjustedPaymentDate {
+export function applyPaymentDatePolicy(contractual, policy = 'next_business_day', holidays) {
   const year = contractual.getUTCFullYear();
   const cal = holidays || buildHolidaySet(year - 1, year + 2);
   const nonBusiness = isNonBusinessDay(contractual, cal);
@@ -115,14 +98,14 @@ export function applyPaymentDatePolicy(
     };
   }
 
-  const reason = isWeekendUtc(contractual) ? 'weekend' : 'public holiday';
+  const reasonDe = isWeekendUtc(contractual) ? 'Wochenende' : 'Feiertag';
 
   if (policy === 'keep_contractual') {
     return {
       dueDate: contractual,
       contractualDueDate: contractual,
       adjusted: false,
-      note: `Contractual due date falls on a ${reason}; date retained as agreed.`,
+      note: `Vertragliches Fälligkeitsdatum fällt auf einen ${reasonDe}; Datum wie vereinbart beibehalten.`,
     };
   }
 
@@ -131,11 +114,11 @@ export function applyPaymentDatePolicy(
     dueDate: adjusted,
     contractualDueDate: contractual,
     adjusted: true,
-    note: `Moved from ${toUtcDateKey(contractual)} (${reason}) to next business day ${toUtcDateKey(adjusted)}.`,
+    note: `Verschoben von ${toUtcDateKey(contractual)} (${reasonDe}) auf den nächsten Geschäftstag ${toUtcDateKey(adjusted)}.`,
   };
 }
 
-export function resolvePaymentDatePolicy(value?: string | null): PaymentDatePolicy {
+export function resolvePaymentDatePolicy(value) {
   if (value === 'keep_contractual') return 'keep_contractual';
   return 'next_business_day';
 }

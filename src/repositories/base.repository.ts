@@ -38,7 +38,10 @@ export class BaseRepository<T = any> {
     return query.exec();
   }
 
-  async findOne(filter: Record<string, unknown> = {}, options: RepositoryOptions = {}): Promise<any> {
+  async findOne(
+    filter: Record<string, unknown> = {},
+    options: RepositoryOptions = {},
+  ): Promise<any> {
     let query: any = this.model.findOne(filter as any);
     if (options.select) query = query.select(options.select);
     if (options.populate) query = query.populate(options.populate);
@@ -53,7 +56,8 @@ export class BaseRepository<T = any> {
     options: RepositoryOptions = {},
   ): Promise<PaginatedResult<any>> {
     const page = Math.max(1, Number(options.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
+    // Cap list fan-out; schedules use up to ~500 via authenticated domain queries.
+    const limit = Math.min(500, Math.max(1, Number(options.limit) || 20));
     const skip = (page - 1) * limit;
 
     const queryFilter: Record<string, unknown> = { ...filter };
@@ -74,9 +78,9 @@ export class BaseRepository<T = any> {
 
     const [data, total] = await Promise.all([
       query.exec(),
-      this.model.countDocuments(queryFilter as any).setOptions(
-        options.includeDeleted ? { includeDeleted: true } : {},
-      ),
+      this.model
+        .countDocuments(queryFilter as any)
+        .setOptions(options.includeDeleted ? { includeDeleted: true } : {}),
     ]);
 
     return {
@@ -92,18 +96,16 @@ export class BaseRepository<T = any> {
     };
   }
 
-  async update(id: Id, update: Record<string, unknown>, options: RepositoryOptions = {}): Promise<any> {
+  async update(
+    id: Id,
+    update: Record<string, unknown>,
+    options: RepositoryOptions = {},
+  ): Promise<any> {
     if (!mongoose.isValidObjectId(id)) {
       throw ApiError.badRequest(`Invalid ${this.resourceName} id`);
     }
 
-    const {
-      session,
-      actor,
-      includeDeleted = false,
-      select,
-      populate,
-    } = options;
+    const { session, actor, includeDeleted = false, select, populate } = options;
     const runValidators = true;
 
     let query: any = this.model.findOneAndUpdate(
@@ -150,7 +152,10 @@ export class BaseRepository<T = any> {
     return query.exec();
   }
 
-  async aggregate(pipeline: Record<string, unknown>[] = [], options: { session?: ClientSession } = {}) {
+  async aggregate(
+    pipeline: Record<string, unknown>[] = [],
+    options: { session?: ClientSession } = {},
+  ) {
     const agg = this.model.aggregate(pipeline as any);
     if (options.session) agg.session(options.session);
     return agg.exec();
