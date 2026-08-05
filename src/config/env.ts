@@ -64,7 +64,8 @@ const envSchema = z.object({
   COOKIE_SECURE: booleanFromString.default(false),
   COOKIE_HTTP_ONLY: booleanFromString.default(true),
   COOKIE_SAME_SITE: z.enum(['strict', 'lax', 'none']).default('lax'),
-  COOKIE_DOMAIN: z.string().default('localhost'),
+  // Empty = host-only cookie (correct for Render/API host). Avoid forcing "localhost" in prod.
+  COOKIE_DOMAIN: z.string().default(''),
   COOKIE_PATH: z.string().default('/'),
   COOKIE_MAX_AGE_MS: z.coerce.number().int().positive().default(604800000),
   ACCESS_COOKIE_NAME: z.string().default('access_token'),

@@ -46,14 +46,17 @@ function isCsrfExemptPath(path) {
  */
 export function issueCsrfToken(res) {
   const token = crypto.randomBytes(32).toString('hex');
-  res.cookie(CSRF_COOKIE, token, {
+  const opts = {
     httpOnly: false,
     secure: env.COOKIE_SECURE,
     sameSite: env.COOKIE_SAME_SITE,
-    domain: env.COOKIE_DOMAIN,
     path: env.COOKIE_PATH,
     maxAge: env.COOKIE_MAX_AGE_MS,
-  });
+  };
+  if (env.COOKIE_DOMAIN) {
+    opts.domain = env.COOKIE_DOMAIN;
+  }
+  res.cookie(CSRF_COOKIE, token, opts);
   return token;
 }
 
